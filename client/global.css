@@ -1,0 +1,213 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Tajawal:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /**
+   * Syrian Insurance Platform Theme
+   * Colors are designed for professional insurance applications
+   * with support for Arabic RTL and bilingual content
+   * All color variables are expressed as HSL values for Tailwind CSS
+  */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+
+    --primary: 142 76% 36%;
+    --primary-foreground: 0 0% 100%;
+    --primary-50: 142 76% 96%;
+    --primary-100: 142 76% 90%;
+    --primary-200: 142 76% 80%;
+    --primary-300: 142 76% 70%;
+    --primary-400: 142 76% 55%;
+    --primary-500: 142 76% 45%;
+    --primary-600: 142 76% 36%;
+    --primary-700: 142 76% 28%;
+    --primary-800: 142 76% 20%;
+    --primary-900: 142 76% 15%;
+
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 142 76% 36%;
+    --info-foreground: 0 0% 100%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 91%;
+    --input: 0 0% 91%;
+    --ring: 142 76% 36%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 0 0% 26%;
+    --sidebar-primary: 0 0% 9%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 96%;
+    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 91%;
+    --sidebar-ring: 142 76% 36%;
+
+    /* Custom Syrian flag inspired colors */
+    --syrian-green: 142 76% 36%;
+    --syrian-red: 0 84% 60%;
+    --syrian-black: 0 0% 9%;
+    --syrian-white: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 0 0% 9%;
+    --foreground: 0 0% 98%;
+
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 142 76% 45%;
+    --primary-foreground: 0 0% 100%;
+    --primary-50: 0 0% 5%;
+    --primary-100: 0 0% 8%;
+    --primary-200: 0 0% 12%;
+    --primary-300: 142 30% 25%;
+    --primary-400: 142 50% 35%;
+    --primary-500: 142 76% 45%;
+    --primary-600: 142 76% 55%;
+    --primary-700: 142 76% 65%;
+    --primary-800: 142 76% 75%;
+    --primary-900: 142 76% 85%;
+
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 98%;
+
+    --success: 142 76% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 60%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 142 76% 45%;
+    --info-foreground: 0 0% 100%;
+
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 65%;
+
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 20%;
+    --input: 0 0% 15%;
+    --ring: 142 76% 45%;
+    --sidebar-background: 0 0% 5%;
+    --sidebar-foreground: 0 0% 96%;
+    --sidebar-primary: 142 76% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 10%;
+    --sidebar-accent-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 15%;
+    --sidebar-ring: 142 76% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-arabic;
+    line-height: 1.6;
+  }
+
+  [dir="rtl"] {
+    font-family: 'Cairo', 'Tajawal', 'Noto Sans Arabic', system-ui, sans-serif;
+  }
+
+  [dir="ltr"] {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  .fade-in {
+    animation: fade-in 0.5s ease-out;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes bounce-gentle {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-5px);
+    }
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--primary-300));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary-500));
+  }
+}
