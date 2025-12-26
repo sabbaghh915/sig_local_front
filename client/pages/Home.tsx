@@ -1,9 +1,9 @@
 import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "../components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { Separator } from "../components/ui/separator";
+import { Alert, AlertDescription } from "../components/ui/alert";
 import { 
   Car, 
   Globe, 
@@ -224,7 +224,7 @@ export default function Home() {
                   خطوات العمل:
                 </h4>
                 <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700 mr-4">
-                  <li>التحقق من هوية العميل والوثا��ق المطلوبة</li>
+                  <li>التحقق من هوية العميل والوثائق المطلوبة</li>
                   <li>مراجعة صحة البيانات وتطابقها مع الوثائق</li>
                   <li>إدخال البيانات بدقة في النظام</li>
                   <li>مراجعة المعلومات قبل المتابعة للدفع</li>
@@ -244,7 +244,7 @@ export default function Home() {
                   <li>مراجعة أرقام الهواتف للتواصل</li>
                   <li>التحقق من دقة عنوان العميل</li>
                   <li>حفظ نسخ من الوثائق المهمة</li>
-                  <li>إبلاغ المشرف في ��الة الشك</li>
+                  <li>إبلاغ المشرف في الية الشك</li>
                 </ul>
               </div>
             </div>

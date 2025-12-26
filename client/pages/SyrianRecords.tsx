@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,8 +6,32 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Car, Search, Filter, Download, Eye, Calendar, User, FileText, Plus, Home, Globe } from "lucide-react";
-import { cn } from "@/lib/utils";
+import {
+  Car,
+  Search,
+  Filter,
+  Download,
+  Eye,
+  Calendar,
+  FileText,
+  Plus,
+  Home,
+  Globe,
+  Pencil,
+  Trash2,
+  Loader2,
+} from "lucide-react";
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface SyrianPolicyRecord {
   id: string;
@@ -36,40 +60,69 @@ export default function SyrianRecords() {
   const [dateFilter, setDateFilter] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
 
+  // Delete dialog state
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SyrianPolicyRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   useEffect(() => {
-    // Load records from API
     const loadRecords = async () => {
       try {
-        const { vehicleApi } = await import('../services/api');
-        const response = await vehicleApi.getAll({ vehicleType: 'syrian' });
-        
-        if (response.success && response.data) {
-          // Transform API data to match the component's interface
-          const transformedRecords: SyrianPolicyRecord[] = response.data.map((vehicle: any) => ({
-            id: vehicle._id || '',
-            policyNumber: vehicle.policyNumber || 'N/A',
-            ownerName: vehicle.ownerName,
-            nationalId: vehicle.nationalId,
-            plateNumber: vehicle.plateNumber,
-            brand: vehicle.brand,
-            model: vehicle.model,
-            year: vehicle.year?.toString() || '',
-            coverage: vehicle.coverage || 'third-party',
-            startDate: vehicle.createdAt ? new Date(vehicle.createdAt).toISOString().split('T')[0] : '',
-            endDate: vehicle.createdAt ? new Date(new Date(vehicle.createdAt).setFullYear(new Date(vehicle.createdAt).getFullYear() + 1)).toISOString().split('T')[0] : '',
-            premium: vehicle.insurance?.total ?? vehicle.insuranceTotal ?? vehicle.premium ?? 0,
- 
-            status: vehicle.status || 'active',
-            createdAt: vehicle.createdAt || new Date().toISOString(),
-            vehicleType: "syrian"
-          }));
-          
+        const { vehicleApi } = await import("../services/api");
+        const response = await vehicleApi.getAll({ vehicleType: "syrian" });
+
+        if (response?.success && Array.isArray(response.data)) {
+          const transformedRecords: SyrianPolicyRecord[] = response.data.map((vehicle: any) => {
+            const createdAt = vehicle?.createdAt ? new Date(vehicle.createdAt) : null;
+
+            // إذا عندك startDate/endDate الحقيقيين في الداتا استبدلهم هنا مباشرة
+            const startDate = vehicle?.startDate
+              ? new Date(vehicle.startDate).toISOString().split("T")[0]
+              : createdAt
+              ? createdAt.toISOString().split("T")[0]
+              : "";
+
+            const endDate = vehicle?.endDate
+              ? new Date(vehicle.endDate).toISOString().split("T")[0]
+              : createdAt
+              ? new Date(new Date(vehicle.createdAt).setFullYear(new Date(vehicle.createdAt).getFullYear() + 1))
+                  .toISOString()
+                  .split("T")[0]
+              : "";
+
+            // status: إذا ما عندك status مخزن، نحسبه حسب endDate
+            let status: "active" | "expired" | "cancelled" = vehicle?.status || "active";
+            if (!vehicle?.status && endDate) {
+              status = new Date(endDate) < new Date() ? "expired" : "active";
+            }
+
+            return {
+              id: vehicle?._id || "",
+              policyNumber: vehicle?.policyNumber || "N/A",
+              ownerName: vehicle?.ownerName || "",
+              nationalId: vehicle?.nationalId || "",
+              plateNumber: vehicle?.plateNumber || "",
+              brand: vehicle?.brand || "",
+              model: vehicle?.model || "",
+              year: vehicle?.year?.toString?.() || "",
+              coverage: vehicle?.coverage || "third-party",
+              startDate,
+              endDate,
+              premium: vehicle?.insurance?.total ?? vehicle?.insuranceTotal ?? vehicle?.premium ?? 0,
+              status,
+              createdAt: vehicle?.createdAt || new Date().toISOString(),
+              vehicleType: "syrian",
+            };
+          });
+
           setRecords(transformedRecords);
           setFilteredRecords(transformedRecords);
+        } else {
+          setRecords([]);
+          setFilteredRecords([]);
         }
       } catch (error) {
-        console.error('Error loading records:', error);
-        // Fall back to empty array on error
+        console.error("Error loading records:", error);
         setRecords([]);
         setFilteredRecords([]);
       } finally {
@@ -80,114 +133,44 @@ export default function SyrianRecords() {
     loadRecords();
   }, []);
 
-  // Keep mock data for reference (commented out)
-  /*
-      const mockRecords: SyrianPolicyRecord[] = [
-        {
-          id: "1",
-          policyNumber: "SYR-2024-001",
-          ownerName: "أحمد محمد علي",
-          nationalId: "12345678901",
-          plateNumber: "123456",
-          brand: "تويوتا",
-          model: "كورولا",
-          year: "2020",
-          coverage: "third-party",
-          startDate: "2024-01-15",
-          endDate: "2025-01-15",
-          premium: 150000,
-          status: "active",
-          createdAt: "2024-01-15T10:30:00Z",
-          vehicleType: "syrian"
-        },
-        {
-          id: "2",
-          policyNumber: "SYR-2024-002",
-          ownerName: "محمد علي إبراهيم",
-          nationalId: "12345678903",
-          plateNumber: "345678",
-          brand: "كيا",
-          model: "سيراتو",
-          year: "2021",
-          coverage: "third-party",
-          startDate: "2024-03-10",
-          endDate: "2024-09-10",
-          premium: 85000,
-          status: "active",
-          createdAt: "2024-03-10T09:20:00Z",
-          vehicleType: "syrian"
-        },
-        {
-          id: "3",
-          policyNumber: "SYR-2024-003",
-          ownerName: "عبد الله حسن محمود",
-          nationalId: "12345678904",
-          plateNumber: "789012",
-          brand: "هيونداي",
-          model: "إلنترا",
-          year: "2019",
-          coverage: "comprehensive",
-          startDate: "2023-12-01",
-          endDate: "2024-12-01",
-          premium: 280000,
-          status: "expired",
-          createdAt: "2023-12-01T14:15:00Z",
-          vehicleType: "syrian"
-        },
-        {
-          id: "4",
-          policyNumber: "SYR-2024-004",
-          ownerName: "نادية أحمد خالد",
-          nationalId: "12345678905",
-          plateNumber: "456789",
-          brand: "تويوتا",
-          model: "يارس",
-          year: "2022",
-          coverage: "third-party",
-          startDate: "2024-02-20",
-          endDate: "2025-02-20",
-          premium: 120000,
-          status: "active",
-          createdAt: "2024-02-20T11:45:00Z",
-          vehicleType: "syrian"
-        }
-      ];
-      */
-
   useEffect(() => {
     let filtered = records;
 
-    // Filter by search term
-    if (searchTerm) {
-      filtered = filtered.filter(record => 
-        record.ownerName.includes(searchTerm) ||
-        record.policyNumber.includes(searchTerm) ||
-        record.plateNumber.includes(searchTerm) ||
-        record.nationalId.includes(searchTerm)
-      );
+    // Search (case-insensitive)
+    const term = searchTerm.trim().toLowerCase();
+    if (term) {
+      filtered = filtered.filter((r) => {
+        const owner = (r.ownerName || "").toLowerCase();
+        const pol = (r.policyNumber || "").toLowerCase();
+        const plate = (r.plateNumber || "").toLowerCase();
+        const nid = (r.nationalId || "").toLowerCase();
+        return owner.includes(term) || pol.includes(term) || plate.includes(term) || nid.includes(term);
+      });
     }
 
-    // Filter by status
+    // Status filter
     if (statusFilter !== "all") {
-      filtered = filtered.filter(record => record.status === statusFilter);
+      filtered = filtered.filter((r) => r.status === statusFilter);
     }
 
-    // Filter by date
+    // Date filter
     if (dateFilter !== "all") {
       const today = new Date();
-      filtered = filtered.filter(record => {
-        const recordDate = new Date(record.createdAt);
+      filtered = filtered.filter((r) => {
+        const recordDate = new Date(r.createdAt);
         switch (dateFilter) {
           case "today":
             return recordDate.toDateString() === today.toDateString();
-          case "week":
+          case "week": {
             const weekAgo = new Date();
             weekAgo.setDate(today.getDate() - 7);
             return recordDate >= weekAgo;
-          case "month":
+          }
+          case "month": {
             const monthAgo = new Date();
             monthAgo.setMonth(today.getMonth() - 1);
             return recordDate >= monthAgo;
+          }
           default:
             return true;
         }
@@ -197,31 +180,90 @@ export default function SyrianRecords() {
     setFilteredRecords(filtered);
   }, [records, searchTerm, statusFilter, dateFilter]);
 
+  const stats = useMemo(() => {
+    const total = records.length;
+    const active = records.filter((r) => r.status === "active").length;
+    const expired = records.filter((r) => r.status === "expired").length;
+    const totalPremium = records.reduce((sum, r) => sum + (r.premium || 0), 0);
+    return { total, active, expired, totalPremium };
+  }, [records]);
+
   const getStatusBadge = (status: string) => {
     const statusConfig = {
       active: { label: "ساري المفعول", variant: "default" as const },
       expired: { label: "منتهي الصلاحية", variant: "destructive" as const },
-      cancelled: { label: "ملغي", variant: "secondary" as const }
+      cancelled: { label: "ملغي", variant: "secondary" as const },
     };
-    
-    const config = statusConfig[status as keyof typeof statusConfig];
+
+    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.active;
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  const getCoverageLabel = (coverage: string) => {
-    return coverage === "third-party" ? "تأمين ضد الغير" : "تأمين شامل";
+  const getCoverageLabel = (coverage: string) => (coverage === "third-party" ? "تأمين ضد الغير" : "تأمين شامل");
+
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat("ar-SY", { style: "currency", currency: "SYP", minimumFractionDigits: 0 }).format(amount || 0);
+
+  const formatDate = (dateString: string) => (dateString ? new Date(dateString).toLocaleDateString("ar-SY") : "-");
+
+  // ✅ Actions
+  const handlePreview = (id: string) => {
+    // معاينة داخل التطبيق
+    navigate(`/pdf?policy=${id}`);
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('ar-SY', {
-      style: 'currency',
-      currency: 'SYP',
-      minimumFractionDigits: 0
-    }).format(amount);
+  const handleDownload = (id: string) => {
+    // تحميل (حسب صفحة pdf عندك)
+    // ممكن تخليه window.open ليفتح تبويب جديد
+    window.open(`/pdf?policy=${id}&download=true`, "_blank");
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('ar-SY');
+  const handleEdit = (id: string) => {
+    // يفتح نفس صفحة إنشاء البوليصة لكن بوضع edit
+    navigate(`/syrian-vehicles?edit=${id}`);
+  };
+
+  const openDeleteDialog = (record: SyrianPolicyRecord) => {
+    setDeleteTarget(record);
+    setDeleteOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget?.id) return;
+
+    setIsDeleting(true);
+    try {
+      const { vehicleApi } = await import("../services/api");
+
+      // دعم أسماء مختلفة للدالة حسب مشروعك
+      const delFn =
+        (vehicleApi as any).delete ||
+        (vehicleApi as any).remove ||
+        (vehicleApi as any).deleteOne ||
+        (vehicleApi as any).deleteById;
+
+      if (!delFn) {
+        throw new Error("delete/remove api method not found in vehicleApi");
+      }
+
+      const res = await delFn(deleteTarget.id);
+
+      if (res?.success === false) {
+        throw new Error(res?.message || "فشل حذف البوليصة");
+      }
+
+      // تحديث الواجهة مباشرة
+      setRecords((prev) => prev.filter((r) => r.id !== deleteTarget.id));
+      setFilteredRecords((prev) => prev.filter((r) => r.id !== deleteTarget.id));
+
+      setDeleteOpen(false);
+      setDeleteTarget(null);
+    } catch (e) {
+      console.error("Delete error:", e);
+      alert("تعذر حذف البوليصة. تحقق من السيرفر أو الصلاحيات.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -240,11 +282,19 @@ export default function SyrianRecords() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={() => navigate("/records")} className="border-white/30 text-white hover:bg-white/10">
+              <Button
+                variant="outline"
+                onClick={() => navigate("/records")}
+                className="border-white/30 text-white hover:bg-white/10"
+              >
                 <FileText className="w-4 h-4 ml-2" />
                 كل السجلات
               </Button>
-              <Button variant="outline" onClick={() => navigate("/foreign-records")} className="border-white/30 text-white hover:bg-white/10">
+              <Button
+                variant="outline"
+                onClick={() => navigate("/foreign-records")}
+                className="border-white/30 text-white hover:bg-white/10"
+              >
                 <Globe className="w-4 h-4 ml-2" />
                 السجلات الأجنبية
               </Button>
@@ -265,9 +315,7 @@ export default function SyrianRecords() {
               <Filter className="w-5 h-5" />
               البحث والتصفية - السيارات السورية
             </CardTitle>
-            <CardDescription className="text-primary-600">
-              ابحث وصفي بوليصات السيارات السورية حسب المعايير المختلفة
-            </CardDescription>
+            <CardDescription className="text-primary-600">ابحث وصفي بوليصات السيارات السورية حسب المعايير المختلفة</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -316,9 +364,9 @@ export default function SyrianRecords() {
 
               <div className="space-y-2">
                 <label className="text-sm font-medium">تصدير</label>
-                <Button variant="outline" className="w-full flex items-center gap-2">
+                <Button variant="outline" className="w-full flex items-center gap-2" disabled>
                   <Download className="w-4 h-4" />
-                  تصدير Excel
+                  تصدير Excel (لاحقاً)
                 </Button>
               </div>
             </div>
@@ -352,7 +400,7 @@ export default function SyrianRecords() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">إجمالي البوليصات السورية</p>
-                  <p className="text-2xl font-bold text-primary">{records.length}</p>
+                  <p className="text-2xl font-bold text-primary">{stats.total}</p>
                 </div>
                 <Car className="w-8 h-8 text-primary-300" />
               </div>
@@ -364,9 +412,7 @@ export default function SyrianRecords() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">ساري المفعول</p>
-                  <p className="text-2xl font-bold text-success">
-                    {records.filter(r => r.status === "active").length}
-                  </p>
+                  <p className="text-2xl font-bold text-success">{stats.active}</p>
                 </div>
                 <Badge className="w-8 h-8 rounded-full bg-success" />
               </div>
@@ -378,9 +424,7 @@ export default function SyrianRecords() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">منتهي الصلاحية</p>
-                  <p className="text-2xl font-bold text-destructive">
-                    {records.filter(r => r.status === "expired").length}
-                  </p>
+                  <p className="text-2xl font-bold text-destructive">{stats.expired}</p>
                 </div>
                 <Calendar className="w-8 h-8 text-destructive/50" />
               </div>
@@ -392,9 +436,7 @@ export default function SyrianRecords() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-600">إجمالي الأقساط</p>
-                  <p className="text-2xl font-bold text-primary">
-                    {formatCurrency(records.reduce((sum, r) => sum + r.premium, 0))}
-                  </p>
+                  <p className="text-2xl font-bold text-primary">{formatCurrency(stats.totalPremium)}</p>
                 </div>
                 <FileText className="w-8 h-8 text-primary-300" />
               </div>
@@ -420,10 +462,7 @@ export default function SyrianRecords() {
               <div className="text-center py-8">
                 <Car className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-600">لا توجد سجلات سيارات سورية مطابقة للمعايير المحددة</p>
-                <Button 
-                  onClick={() => navigate("/syrian-vehicles")} 
-                  className="mt-4 bg-primary hover:bg-primary-600"
-                >
+                <Button onClick={() => navigate("/syrian-vehicles")} className="mt-4 bg-primary hover:bg-primary-600">
                   إضافة بوليصة جديدة
                 </Button>
               </div>
@@ -440,59 +479,58 @@ export default function SyrianRecords() {
                       <TableHead className="text-right">نوع التغطية</TableHead>
                       <TableHead className="text-right">تاريخ البداية</TableHead>
                       <TableHead className="text-right">تاريخ الانتهاء</TableHead>
-                      <TableHead className="text-right">القسط</TableHead>
+                      
                       <TableHead className="text-right">الحالة</TableHead>
                       <TableHead className="text-right">الإجراءات</TableHead>
                     </TableRow>
                   </TableHeader>
+
                   <TableBody>
                     {filteredRecords.map((record) => (
                       <TableRow key={record.id}>
-                        <TableCell className="font-medium text-primary">
-                          {record.policyNumber}
-                        </TableCell>
+                        <TableCell className="font-medium text-primary">{record.policyNumber}</TableCell>
                         <TableCell>
-                          <div>
-                            <p className="font-medium">{record.ownerName}</p>
-                          </div>
+                          <p className="font-medium">{record.ownerName}</p>
                         </TableCell>
-                        <TableCell className="font-mono text-sm">
-                          {record.nationalId}
-                        </TableCell>
+                        <TableCell className="font-mono text-sm">{record.nationalId}</TableCell>
                         <TableCell>
                           {record.brand} {record.model} {record.year}
                         </TableCell>
-                        <TableCell className="font-mono font-bold">
-                          {record.plateNumber}
-                        </TableCell>
+                        <TableCell className="font-mono font-bold">{record.plateNumber}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">
-                            {getCoverageLabel(record.coverage)}
-                          </Badge>
+                          <Badge variant="outline">{getCoverageLabel(record.coverage)}</Badge>
                         </TableCell>
                         <TableCell>{formatDate(record.startDate)}</TableCell>
                         <TableCell>{formatDate(record.endDate)}</TableCell>
-                        <TableCell className="font-medium">
-                          {formatCurrency(record.premium)}
-                        </TableCell>
-                        <TableCell>
-                          {getStatusBadge(record.status)}
-                        </TableCell>
+                       
+                        <TableCell>{getStatusBadge(record.status)}</TableCell>
+
+                        {/* ✅ Actions */}
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => navigate(`/pdf?policy=${record.id}`)}
-                            >
+                            {/* معاينة */}
+                            <Button size="sm" variant="outline" onClick={() => handlePreview(record.id)} title="معاينة PDF">
                               <Eye className="w-4 h-4" />
                             </Button>
+
+                            {/* تحميل */}
+                            <Button size="sm" variant="outline" onClick={() => handleDownload(record.id)} title="تحميل PDF">
+                              <Download className="w-4 h-4" />
+                            </Button>
+
+                            {/* تعديل */}
+                            <Button size="sm" variant="outline" onClick={() => handleEdit(record.id)} title="تعديل البوليصة">
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+
+                            {/* حذف */}
                             <Button
                               size="sm"
-                              variant="outline"
-                              onClick={() => navigate(`/pdf?policy=${record.id}&download=true`)}
+                              variant="destructive"
+                              onClick={() => openDeleteDialog(record)}
+                              title="حذف البوليصة"
                             >
-                              <Download className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
                         </TableCell>
@@ -505,6 +543,38 @@ export default function SyrianRecords() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ✅ Delete Confirmation Dialog */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>تأكيد الحذف</AlertDialogTitle>
+            <AlertDialogDescription>
+              هل أنت متأكد أنك تريد حذف هذه البوليصة؟
+              <br />
+              <span className="font-bold">
+                {deleteTarget ? `${deleteTarget.policyNumber} - ${deleteTarget.ownerName}` : ""}
+              </span>
+              <br />
+              لا يمكن التراجع عن هذا الإجراء.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter className="gap-2">
+            <AlertDialogCancel disabled={isDeleting}>إلغاء</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} disabled={isDeleting}>
+              {isDeleting ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  جارٍ الحذف...
+                </span>
+              ) : (
+                "نعم، احذف"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
