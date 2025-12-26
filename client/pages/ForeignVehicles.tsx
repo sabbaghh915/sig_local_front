@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { BORDER_VEHICLE_TYPES } from "../constants/insuranceOptions";
+import { metaApi } from "../services/api";
 
 interface ForeignVehicleData {
   // Owner Information
@@ -43,10 +44,12 @@ interface ForeignVehicleData {
   plateCountry: string;
   chassisNumber: string;
   engineNumber: string;
-  brand: string;
-  model: string;
+
+  brand: string; // نخزن _id أو الاسم (نعمل normalize)
+  model: string; // نص
   year: string;
-  color: string;
+
+  color: string; // اسم اللون
   fuelType: string;
 
   // Entry Information
@@ -60,10 +63,12 @@ interface ForeignVehicleData {
   coverage: string;
   notes: string;
 
-  // ✅ pricing fields for border insurance
-  borderVehicleType: string; // tourist | motorcycle | bus | other
-  insuranceMonths: string; // "1" | "2" | "3" | "6" | "12"
+  borderVehicleType: string;
+  insuranceMonths: string;
 }
+
+type DbColor = { _id: string; name: string; ccid?: number };
+type MakeObj = { _id: string; make: string; type?: string; legacyId?: number };
 
 function monthsToPolicyDuration(months: string) {
   switch (months) {
@@ -83,7 +88,6 @@ function monthsToPolicyDuration(months: string) {
 }
 
 function policyDurationLabel(policyDuration: string, insuranceMonths: string) {
-  // لو المستخدم اختار الأشهر، اعرضها كأولوية
   if (insuranceMonths) {
     switch (insuranceMonths) {
       case "1":
@@ -96,8 +100,6 @@ function policyDurationLabel(policyDuration: string, insuranceMonths: string) {
         return "6 أشهر";
       case "12":
         return "سنة كاملة";
-      default:
-        break;
     }
   }
 
@@ -117,11 +119,150 @@ function policyDurationLabel(policyDuration: string, insuranceMonths: string) {
   }
 }
 
+function normalizeMakes(input: any): MakeObj[] {
+  const arr = Array.isArray(input) ? input : [];
+  if (!arr.length) return [];
+
+  // string[]
+  if (typeof arr[0] === "string") {
+    return arr.map((s: string) => ({ _id: s, make: s }));
+  }
+
+  // object[]
+  return arr
+    .map((m: any) => {
+      const id = String(m?._id ?? m?.id ?? m?.make ?? m?.name ?? "");
+      const make = String(m?.make ?? m?.name ?? m?._id ?? "");
+      if (!id || !make) return null;
+      return { _id: id, make, type: m?.type, legacyId: m?.legacyId };
+    })
+    .filter(Boolean) as MakeObj[];
+}
+
+function normalizeModels(input: any): string[] {
+  const arr = Array.isArray(input) ? input : [];
+  if (!arr.length) return [];
+
+  if (typeof arr[0] === "string") return arr.filter(Boolean);
+
+  return arr
+    .map((x: any) => String(x?.name ?? x?.model ?? x?.type ?? x?._id ?? ""))
+    .filter((s: string) => !!s);
+}
+
+function normalizeColors(input: any): DbColor[] {
+  const arr = Array.isArray(input) ? input : [];
+  return arr
+    .map((c: any) => {
+      const _id = String(c?._id ?? c?.id ?? c?.name ?? "");
+      const name = String(c?.name ?? "");
+      if (!_id || !name) return null;
+      return { _id, name, ccid: c?.ccid };
+    })
+    .filter(Boolean) as DbColor[];
+}
+
+const NATIONALITIES = [
+  { value: "lebanese", label: "لبنانية" },
+  { value: "jordanian", label: "أردنية" },
+  { value: "iraqi", label: "عراقية" },
+  { value: "turkish", label: "تركية" },
+  { value: "palestinian", label: "فلسطينية" },
+  { value: "egyptian", label: "مصرية" },
+  { value: "saudi", label: "سعودية" },
+  { value: "kuwaiti", label: "كويتية" },
+  { value: "emirati", label: "إماراتية" },
+  { value: "other", label: "أخرى" },
+] as const;
+
+const PLATE_COUNTRIES = [
+  { value: "lebanon", label: "لبنان" },
+  { value: "jordan", label: "الأردن" },
+  { value: "iraq", label: "العراق" },
+  { value: "turkey", label: "تركيا" },
+  { value: "palestine", label: "فلسطين" },
+  { value: "egypt", label: "مصر" },
+  { value: "saudi", label: "السعودية" },
+  { value: "kuwait", label: "الكويت" },
+  { value: "uae", label: "الإمارات" },
+  { value: "other", label: "أخرى" },
+] as const;
+
+const ENTRY_POINTS = [
+  { value: "damascus-airport", label: "مطار دمشق الدولي" },
+  { value: "aleppo-airport", label: "مطار حلب الدولي" },
+  { value: "nassib", label: "معبر نصيب الحدودي" },
+  { value: "tanf", label: "معبر التنف" },
+  { value: "qasmieh", label: "معبر القاسمية" },
+  { value: "arida", label: "معبر العريضة" },
+  { value: "tal-kalakh", label: "معبر تل كلخ" },
+  { value: "other", label: "أخرى" },
+] as const;
+
+const COVERAGES = [
+  { value: "third-party", label: "تأمين ضد الغير" },
+  { value: "comprehensive", label: "تأمين شامل" },
+  { value: "border-insurance", label: "تأمين حدود" },
+] as const;
+
+const FUEL_TYPES = [
+  { value: "بنزين", label: "بنزين" },
+  { value: "ديزل", label: "ديزل" },
+  { value: "هجين", label: "هجين" },
+  { value: "كهربائي", label: "كهربائي" },
+  { value: "غاز", label: "غاز" },
+] as const;
+
+const INSURANCE_MONTHS = [
+  { value: "1", label: "شهر" },
+  { value: "2", label: "شهرين" },
+  { value: "3", label: "3 أشهر" },
+  { value: "6", label: "6 أشهر" },
+  { value: "12", label: "سنة" },
+] as const;
+
+const POLICY_DURATIONS = [
+  { value: "1month", label: "شهر واحد" },
+  { value: "2months", label: "شهرين" },
+  { value: "3months", label: "3 أشهر" },
+  { value: "6months", label: "6 أشهر" },
+  { value: "12months", label: "سنة كاملة" },
+] as const;
+
 export default function ForeignVehicles() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // ✅ meta
+  const [loadingMeta, setLoadingMeta] = useState(true);
+  const [makes, setMakes] = useState<MakeObj[]>([]);
+  const [models, setModels] = useState<string[]>([]);
+  const [colors, setColors] = useState<DbColor[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+
+  // ✅ Open states (Lazy render)
+  const [nationalityOpen, setNationalityOpen] = useState(false);
+  const [plateCountryOpen, setPlateCountryOpen] = useState(false);
+
+  const [brandOpen, setBrandOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [yearOpen, setYearOpen] = useState(false);
+  const [colorOpen, setColorOpen] = useState(false);
+  const [fuelOpen, setFuelOpen] = useState(false);
+
+  const [entryPointOpen, setEntryPointOpen] = useState(false);
+
+  const [borderTypeOpen, setBorderTypeOpen] = useState(false);
+  const [monthsOpen, setMonthsOpen] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const [coverageOpen, setCoverageOpen] = useState(false);
+
+  const years = useMemo(() => {
+    const y = new Date().getFullYear();
+    return Array.from({ length: 35 }, (_, i) => String(y - i));
+  }, []);
 
   const [vehicleData, setVehicleData] = useState<ForeignVehicleData>({
     ownerName: "",
@@ -156,7 +297,6 @@ export default function ForeignVehicles() {
 
   const handleInputChange = (field: keyof ForeignVehicleData, value: string) => {
     setVehicleData((prev) => {
-      // ✅ لو غيّر مدة الأشهر، خلّي policyDuration يتوافق تلقائياً (حتى لا يضيع بالسجلات)
       if (field === "insuranceMonths") {
         return {
           ...prev,
@@ -168,12 +308,242 @@ export default function ForeignVehicles() {
     });
   };
 
+  // ✅ load makes + colors once
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingMeta(true);
+        const [mRes, cRes] = await Promise.all([
+          metaApi.getMakes().catch(() => []),
+          metaApi.getColors().catch(() => []),
+        ]);
+
+        setMakes(normalizeMakes(mRes));
+        setColors(normalizeColors(cRes));
+      } catch (e) {
+        console.error(e);
+        setMakes([]);
+        setColors([]);
+      } finally {
+        setLoadingMeta(false);
+      }
+    })();
+  }, []);
+
+  // ✅ selected make name (للإظهار والإرسال)
+  const selectedMakeName = useMemo(() => {
+    const selected =
+      makes.find((m) => m._id === vehicleData.brand) ||
+      makes.find((m) => m.make === vehicleData.brand);
+    return selected?.make || "";
+  }, [makes, vehicleData.brand]);
+
+  const onMakeChange = (makeId: string) => {
+    setVehicleData((s) => ({ ...s, brand: makeId, model: "" }));
+    setModels([]);
+  };
+
+  // ✅ when brand changes => load models
+  useEffect(() => {
+    (async () => {
+      if (!vehicleData.brand) {
+        setModels([]);
+        return;
+      }
+
+      try {
+        setLoadingModels(true);
+        const makeKey = selectedMakeName || vehicleData.brand;
+        const res = await metaApi.getModels(makeKey).catch(() => []);
+        setModels(normalizeModels(res));
+      } catch (e) {
+        console.error(e);
+        setModels([]);
+      } finally {
+        setLoadingModels(false);
+      }
+    })();
+  }, [vehicleData.brand, selectedMakeName]);
+
+  // ✅ Labels for trigger display
+  const nationalityLabel = useMemo(
+    () => NATIONALITIES.find((n) => n.value === vehicleData.nationality)?.label || "",
+    [vehicleData.nationality]
+  );
+
+  const plateCountryLabel = useMemo(
+    () => PLATE_COUNTRIES.find((n) => n.value === vehicleData.plateCountry)?.label || "",
+    [vehicleData.plateCountry]
+  );
+
+  const entryPointLabel = useMemo(
+    () => ENTRY_POINTS.find((n) => n.value === vehicleData.entryPoint)?.label || "",
+    [vehicleData.entryPoint]
+  );
+
+  const borderTypeLabel = useMemo(
+    () => BORDER_VEHICLE_TYPES.find((t) => t.value === vehicleData.borderVehicleType)?.label || "",
+    [vehicleData.borderVehicleType]
+  );
+
+  const monthsLabel = useMemo(
+    () => INSURANCE_MONTHS.find((m) => m.value === vehicleData.insuranceMonths)?.label || "",
+    [vehicleData.insuranceMonths]
+  );
+
+  const coverageLabel = useMemo(
+    () => COVERAGES.find((c) => c.value === vehicleData.coverage)?.label || "",
+    [vehicleData.coverage]
+  );
+
+  const fuelLabel = useMemo(
+    () => FUEL_TYPES.find((f) => f.value === vehicleData.fuelType)?.label || "",
+    [vehicleData.fuelType]
+  );
+
+  const policyLabel = useMemo(
+    () => policyDurationLabel(vehicleData.policyDuration, vehicleData.insuranceMonths),
+    [vehicleData.policyDuration, vehicleData.insuranceMonths]
+  );
+
+  const fallbackColors = useMemo(
+    () => ["أبيض", "أسود", "فضي", "رمادي", "أحمر", "أزرق", "أخضر"],
+    []
+  );
+
+  // ✅ items (memo) + lazy render
+  const nationalityItems = useMemo(
+    () =>
+      NATIONALITIES.map((n) => (
+        <SelectItem key={n.value} value={n.value}>
+          {n.label}
+        </SelectItem>
+      )),
+    []
+  );
+
+  const plateCountryItems = useMemo(
+    () =>
+      PLATE_COUNTRIES.map((n) => (
+        <SelectItem key={n.value} value={n.value}>
+          {n.label}
+        </SelectItem>
+      )),
+    []
+  );
+
+  const entryPointItems = useMemo(
+    () =>
+      ENTRY_POINTS.map((n) => (
+        <SelectItem key={n.value} value={n.value}>
+          {n.label}
+        </SelectItem>
+      )),
+    []
+  );
+
+  const makeItems = useMemo(
+    () =>
+      makes.map((m) => (
+        <SelectItem key={m._id} value={m._id}>
+          {m.make}
+        </SelectItem>
+      )),
+    [makes]
+  );
+
+  const modelItems = useMemo(
+    () =>
+      models.map((mm) => (
+        <SelectItem key={mm} value={mm}>
+          {mm}
+        </SelectItem>
+      )),
+    [models]
+  );
+
+  const yearItems = useMemo(
+    () =>
+      years.map((y) => (
+        <SelectItem key={y} value={y}>
+          {y}
+        </SelectItem>
+      )),
+    [years]
+  );
+
+  const colorItems = useMemo(() => {
+    if (colors.length) {
+      return colors.map((c) => (
+        <SelectItem key={c._id} value={c.name}>
+          {c.name}
+        </SelectItem>
+      ));
+    }
+
+    return fallbackColors.map((c) => (
+      <SelectItem key={c} value={c}>
+        {c}
+      </SelectItem>
+    ));
+  }, [colors, fallbackColors]);
+
+  const fuelItems = useMemo(
+    () =>
+      FUEL_TYPES.map((f) => (
+        <SelectItem key={f.value} value={f.value}>
+          {f.label}
+        </SelectItem>
+      )),
+    []
+  );
+
+  const borderTypeItems = useMemo(
+    () =>
+      BORDER_VEHICLE_TYPES.map((t) => (
+        <SelectItem key={t.value} value={t.value}>
+          {t.label}
+        </SelectItem>
+      )),
+    []
+  );
+
+  const monthsItems = useMemo(
+    () =>
+      INSURANCE_MONTHS.map((m) => (
+        <SelectItem key={m.value} value={m.value}>
+          {m.label}
+        </SelectItem>
+      )),
+    []
+  );
+
+  const policyItems = useMemo(
+    () =>
+      POLICY_DURATIONS.map((p) => (
+        <SelectItem key={p.value} value={p.value}>
+          {p.label}
+        </SelectItem>
+      )),
+    []
+  );
+
+  const coverageItems = useMemo(
+    () =>
+      COVERAGES.map((c) => (
+        <SelectItem key={c.value} value={c.value}>
+          {c.label}
+        </SelectItem>
+      )),
+    []
+  );
+
   const handleNextStep = () => {
-    if (currentStep < 4) setCurrentStep(currentStep + 1);
+    if (currentStep < 4) setCurrentStep((s) => s + 1);
   };
 
   const handlePrevStep = () => {
-    if (currentStep > 1) setCurrentStep(currentStep - 1);
+    if (currentStep > 1) setCurrentStep((s) => s - 1);
   };
 
   const isStepValid = (step: number) => {
@@ -191,7 +561,8 @@ export default function ForeignVehicles() {
             vehicleData.plateCountry &&
             vehicleData.chassisNumber &&
             vehicleData.brand &&
-            vehicleData.model
+            vehicleData.model &&
+            vehicleData.year
         );
       case 3:
         return Boolean(
@@ -201,7 +572,6 @@ export default function ForeignVehicles() {
             vehicleData.customsDocument
         );
       case 4:
-        // ✅ لازم مدة + نوع تغطية + نوع حدودي + مدة بالأشهر
         return Boolean(
           (vehicleData.insuranceMonths || vehicleData.policyDuration) &&
             vehicleData.coverage &&
@@ -224,7 +594,6 @@ export default function ForeignVehicles() {
     setError("");
 
     try {
-      // ✅ address مطلوب في Schema
       const address =
         (vehicleData.localAddress || "").trim() ||
         (vehicleData.homeAddress || "").trim();
@@ -235,7 +604,6 @@ export default function ForeignVehicles() {
         return;
       }
 
-      // ✅ تجهيز pricing للحدودي (سيُستخدم في Payment.tsx لاحقاً)
       const pricing = {
         insuranceType: "border" as const,
         borderType: vehicleData.borderVehicleType,
@@ -255,12 +623,11 @@ export default function ForeignVehicles() {
         ),
       };
 
-      // ✅ payload للباك (مع address)
       const vehiclePayload = {
         vehicleType: "foreign" as const,
 
         ownerName: vehicleData.ownerName,
-        nationalId: vehicleData.passportNumber, // بعض الباك يستخدم nationalId للبحث
+        nationalId: vehicleData.passportNumber,
         passportNumber: vehicleData.passportNumber,
         nationality: vehicleData.nationality,
         phoneNumber: vehicleData.phoneNumber,
@@ -269,7 +636,9 @@ export default function ForeignVehicles() {
         plateNumber: vehicleData.plateNumber,
         chassisNumber: vehicleData.chassisNumber,
         engineNumber: vehicleData.engineNumber || undefined,
-        brand: vehicleData.brand,
+
+        // ✅ نرسل اسم الماركة (أفضل توافق مع الباك)
+        brand: selectedMakeName || vehicleData.brand,
         model: vehicleData.model,
         year: Number(vehicleData.year || 0),
         color: vehicleData.color || undefined,
@@ -290,7 +659,6 @@ export default function ForeignVehicles() {
         coverage: vehicleData.coverage || undefined,
         notes: vehicleData.notes || undefined,
 
-        // (اختياري) نخزن pricing داخل المركبة لو الباك يسمح
         pricing,
       };
 
@@ -298,19 +666,19 @@ export default function ForeignVehicles() {
       const response = await vehicleApi.create(vehiclePayload);
 
       if (response.success && response.data) {
-  localStorage.setItem(
-    "foreignVehicleData",
-    JSON.stringify({
-      ...vehicleData,
-      vehicleId: response.data._id,
-      nationalId: vehicleData.passportNumber,
-    })
-  );
-
-  navigate("/payment-foreign");
-} else {
-  setError("حدث خطأ في حفظ البيانات");
-}
+        localStorage.setItem(
+          "foreignVehicleData",
+          JSON.stringify({
+            ...vehicleData,
+            vehicleId: response.data._id,
+            nationalId: vehicleData.passportNumber,
+            brand: selectedMakeName || vehicleData.brand, // نخزن الاسم لعرضه لاحقاً
+          })
+        );
+        navigate("/payment-foreign");
+      } else {
+        setError("حدث خطأ في حفظ البيانات");
+      }
     } catch (err: any) {
       console.error("Save vehicle error:", err);
       setError(err?.message || "حدث خطأ في حفظ البيانات");
@@ -406,7 +774,6 @@ export default function ForeignVehicles() {
           </Alert>
         )}
 
-        {/* Form Content */}
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-xl">
@@ -419,7 +786,7 @@ export default function ForeignVehicles() {
           </CardHeader>
 
           <CardContent className="space-y-6">
-            {/* Step 1: Owner Information */}
+            {/* Step 1 */}
             {currentStep === 1 && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -431,9 +798,7 @@ export default function ForeignVehicles() {
                     <Input
                       id="ownerName"
                       value={vehicleData.ownerName}
-                      onChange={(e) =>
-                        handleInputChange("ownerName", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("ownerName", e.target.value)}
                       placeholder="الاسم كما هو مدون في جواز السفر"
                       className="text-right"
                       required
@@ -444,42 +809,30 @@ export default function ForeignVehicles() {
                     <Label htmlFor="nationality">الجنسية *</Label>
                     <Select
                       value={vehicleData.nationality}
-                      onValueChange={(value) =>
-                        handleInputChange("nationality", value)
-                      }
+                      onValueChange={(value) => handleInputChange("nationality", value)}
+                      open={nationalityOpen}
+                      onOpenChange={setNationalityOpen}
                     >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر الجنسية" />
+                        <SelectValue placeholder="اختر الجنسية">
+                          {nationalityLabel ? nationalityLabel : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="lebanese">لبنانية</SelectItem>
-                        <SelectItem value="jordanian">أردنية</SelectItem>
-                        <SelectItem value="iraqi">عراقية</SelectItem>
-                        <SelectItem value="turkish">تركية</SelectItem>
-                        <SelectItem value="palestinian">فلسطينية</SelectItem>
-                        <SelectItem value="egyptian">مصرية</SelectItem>
-                        <SelectItem value="saudi">سعودية</SelectItem>
-                        <SelectItem value="kuwaiti">كويتية</SelectItem>
-                        <SelectItem value="emirati">إماراتية</SelectItem>
-                        <SelectItem value="other">أخرى</SelectItem>
+                        {nationalityOpen ? nationalityItems : null}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label
-                      htmlFor="passportNumber"
-                      className="flex items-center gap-2"
-                    >
+                    <Label htmlFor="passportNumber" className="flex items-center gap-2">
                       <IdCard className="w-4 h-4" />
                       رقم جواز السفر *
                     </Label>
                     <Input
                       id="passportNumber"
                       value={vehicleData.passportNumber}
-                      onChange={(e) =>
-                        handleInputChange("passportNumber", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("passportNumber", e.target.value)}
                       placeholder="رقم جواز السفر"
                       className="text-right"
                       required
@@ -488,19 +841,14 @@ export default function ForeignVehicles() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label
-                      htmlFor="phoneNumber"
-                      className="flex items-center gap-2"
-                    >
+                    <Label htmlFor="phoneNumber" className="flex items-center gap-2">
                       <Phone className="w-4 h-4" />
                       رقم الهاتف *
                     </Label>
                     <Input
                       id="phoneNumber"
                       value={vehicleData.phoneNumber}
-                      onChange={(e) =>
-                        handleInputChange("phoneNumber", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("phoneNumber", e.target.value)}
                       placeholder="رقم الهاتف للتواصل"
                       className="text-right"
                       required
@@ -509,19 +857,14 @@ export default function ForeignVehicles() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label
-                      htmlFor="homeAddress"
-                      className="flex items-center gap-2"
-                    >
+                    <Label htmlFor="homeAddress" className="flex items-center gap-2">
                       <MapPin className="w-4 h-4" />
                       العنوان في بلد الإقامة
                     </Label>
                     <Input
                       id="homeAddress"
                       value={vehicleData.homeAddress}
-                      onChange={(e) =>
-                        handleInputChange("homeAddress", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("homeAddress", e.target.value)}
                       placeholder="العنوان في البلد الأصلي"
                       className="text-right"
                     />
@@ -532,9 +875,7 @@ export default function ForeignVehicles() {
                     <Input
                       id="localAddress"
                       value={vehicleData.localAddress}
-                      onChange={(e) =>
-                        handleInputChange("localAddress", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("localAddress", e.target.value)}
                       placeholder="مكان الإقامة المؤقت في سوريا"
                       className="text-right"
                     />
@@ -543,24 +884,19 @@ export default function ForeignVehicles() {
               </div>
             )}
 
-            {/* Step 2: Vehicle Information */}
+            {/* Step 2 */}
             {currentStep === 2 && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label
-                      htmlFor="plateNumber"
-                      className="flex items-center gap-2"
-                    >
+                    <Label htmlFor="plateNumber" className="flex items-center gap-2">
                       <Globe className="w-4 h-4" />
                       رقم اللوحة *
                     </Label>
                     <Input
                       id="plateNumber"
                       value={vehicleData.plateNumber}
-                      onChange={(e) =>
-                        handleInputChange("plateNumber", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("plateNumber", e.target.value)}
                       placeholder="رقم لوحة المركبة"
                       className="text-right"
                       required
@@ -572,24 +908,17 @@ export default function ForeignVehicles() {
                     <Label htmlFor="plateCountry">دولة التسجيل *</Label>
                     <Select
                       value={vehicleData.plateCountry}
-                      onValueChange={(value) =>
-                        handleInputChange("plateCountry", value)
-                      }
+                      onValueChange={(value) => handleInputChange("plateCountry", value)}
+                      open={plateCountryOpen}
+                      onOpenChange={setPlateCountryOpen}
                     >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر دولة تسجيل المركبة" />
+                        <SelectValue placeholder="اختر دولة تسجيل المركبة">
+                          {plateCountryLabel ? plateCountryLabel : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="lebanon">لبنان</SelectItem>
-                        <SelectItem value="jordan">الأردن</SelectItem>
-                        <SelectItem value="iraq">العراق</SelectItem>
-                        <SelectItem value="turkey">تركيا</SelectItem>
-                        <SelectItem value="palestine">فلسطين</SelectItem>
-                        <SelectItem value="egypt">مصر</SelectItem>
-                        <SelectItem value="saudi">السعودية</SelectItem>
-                        <SelectItem value="kuwait">الكويت</SelectItem>
-                        <SelectItem value="uae">الإمارات</SelectItem>
-                        <SelectItem value="other">أخرى</SelectItem>
+                        {plateCountryOpen ? plateCountryItems : null}
                       </SelectContent>
                     </Select>
                   </div>
@@ -599,9 +928,7 @@ export default function ForeignVehicles() {
                     <Input
                       id="chassisNumber"
                       value={vehicleData.chassisNumber}
-                      onChange={(e) =>
-                        handleInputChange("chassisNumber", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("chassisNumber", e.target.value)}
                       placeholder="رقم الهيكل (VIN)"
                       className="text-right"
                       required
@@ -614,91 +941,137 @@ export default function ForeignVehicles() {
                     <Input
                       id="engineNumber"
                       value={vehicleData.engineNumber}
-                      onChange={(e) =>
-                        handleInputChange("engineNumber", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("engineNumber", e.target.value)}
                       placeholder="رقم المحرك"
                       className="text-right"
                       dir="ltr"
                     />
                   </div>
 
+                  {/* ✅ Brand from DB */}
                   <div className="space-y-2">
-                    <Label htmlFor="brand">الماركة *</Label>
+                    <Label>الماركة *</Label>
                     <Select
                       value={vehicleData.brand}
-                      onValueChange={(value) => handleInputChange("brand", value)}
+                      onValueChange={onMakeChange}
+                      disabled={loadingMeta}
+                      open={brandOpen}
+                      onOpenChange={setBrandOpen}
                     >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر ماركة السيارة" />
+                        <SelectValue
+                          placeholder={loadingMeta ? "جارٍ تحميل الماركات..." : "اختر ماركة السيارة"}
+                        >
+                          {selectedMakeName ? selectedMakeName : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="toyota">تويوتا</SelectItem>
-                        <SelectItem value="hyundai">هيونداي</SelectItem>
-                        <SelectItem value="kia">كيا</SelectItem>
-                        <SelectItem value="nissan">نيسان</SelectItem>
-                        <SelectItem value="mercedes">مرسيدس</SelectItem>
-                        <SelectItem value="bmw">بي إم دبليو</SelectItem>
-                        <SelectItem value="audi">أودي</SelectItem>
-                        <SelectItem value="volkswagen">فولكس فاجن</SelectItem>
-                        <SelectItem value="peugeot">بيجو</SelectItem>
-                        <SelectItem value="renault">رينو</SelectItem>
-                        <SelectItem value="other">أخرى</SelectItem>
+                        {brandOpen ? makeItems : null}
                       </SelectContent>
                     </Select>
                   </div>
 
+                  {/* ✅ Model from DB by brand */}
                   <div className="space-y-2">
-                    <Label htmlFor="model">الموديل *</Label>
-                    <Input
-                      id="model"
-                      value={vehicleData.model}
-                      onChange={(e) => handleInputChange("model", e.target.value)}
-                      placeholder="موديل السيارة"
-                      className="text-right"
-                      required
-                    />
+                    <Label>النوع / الموديل *</Label>
+
+                    {models.length > 0 ? (
+                      <Select
+                        value={vehicleData.model}
+                        onValueChange={(value) => handleInputChange("model", value)}
+                        disabled={!vehicleData.brand || loadingModels}
+                        open={modelOpen}
+                        onOpenChange={setModelOpen}
+                      >
+                        <SelectTrigger className="text-right">
+                          <SelectValue
+                            placeholder={
+                              !vehicleData.brand
+                                ? "اختر الماركة أولاً"
+                                : loadingModels
+                                ? "جارٍ تحميل الأنواع..."
+                                : "اختر النوع"
+                            }
+                          >
+                            {vehicleData.model ? vehicleData.model : undefined}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {modelOpen ? modelItems : null}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={vehicleData.model}
+                        onChange={(e) => handleInputChange("model", e.target.value)}
+                        placeholder={
+                          vehicleData.brand
+                            ? "لا توجد أنواع لهذه الماركة (اكتب يدوياً)"
+                            : "اختر الماركة أولاً"
+                        }
+                        className="text-right"
+                        disabled={!vehicleData.brand || loadingModels}
+                      />
+                    )}
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="year">سنة الصنع *</Label>
+                    <Label>سنة الصنع *</Label>
                     <Select
                       value={vehicleData.year}
                       onValueChange={(value) => handleInputChange("year", value)}
+                      open={yearOpen}
+                      onOpenChange={setYearOpen}
                     >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر سنة الصنع" />
+                        <SelectValue placeholder="اختر سنة الصنع">
+                          {vehicleData.year ? vehicleData.year : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        {Array.from({ length: 30 }, (_, i) => 2024 - i).map(
-                          (year) => (
-                            <SelectItem key={year} value={year.toString()}>
-                              {year}
-                            </SelectItem>
-                          )
-                        )}
+                        {yearOpen ? yearItems : null}
                       </SelectContent>
                     </Select>
                   </div>
 
+                  {/* ✅ Color */}
                   <div className="space-y-2">
-                    <Label htmlFor="color">لون السيارة</Label>
+                    <Label>لون السيارة</Label>
                     <Select
                       value={vehicleData.color}
                       onValueChange={(value) => handleInputChange("color", value)}
+                      open={colorOpen}
+                      onOpenChange={setColorOpen}
                     >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر لون السيارة" />
+                        <SelectValue
+                          placeholder={loadingMeta ? "جارٍ تحميل الألوان..." : "اختر لون السيارة"}
+                        >
+                          {vehicleData.color ? vehicleData.color : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="white">أبيض</SelectItem>
-                        <SelectItem value="black">أسود</SelectItem>
-                        <SelectItem value="silver">فضي</SelectItem>
-                        <SelectItem value="gray">رمادي</SelectItem>
-                        <SelectItem value="red">أحمر</SelectItem>
-                        <SelectItem value="blue">أزرق</SelectItem>
-                        <SelectItem value="green">أخضر</SelectItem>
-                        <SelectItem value="other">أخرى</SelectItem>
+                        {colorOpen ? colorItems : null}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* ✅ Fuel */}
+                  <div className="space-y-2">
+                    <Label>نوع الوقود</Label>
+                    <Select
+                      value={vehicleData.fuelType}
+                      onValueChange={(value) => handleInputChange("fuelType", value)}
+                      open={fuelOpen}
+                      onOpenChange={setFuelOpen}
+                    >
+                      <SelectTrigger className="text-right">
+                        <SelectValue placeholder="اختر نوع الوقود">
+                          {fuelLabel ? fuelLabel : undefined}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {fuelOpen ? fuelItems : null}
                       </SelectContent>
                     </Select>
                   </div>
@@ -706,7 +1079,7 @@ export default function ForeignVehicles() {
               </div>
             )}
 
-            {/* Step 3: Entry Information */}
+            {/* Step 3 */}
             {currentStep === 3 && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -719,9 +1092,7 @@ export default function ForeignVehicles() {
                       id="entryDate"
                       type="date"
                       value={vehicleData.entryDate}
-                      onChange={(e) =>
-                        handleInputChange("entryDate", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("entryDate", e.target.value)}
                       className="text-right"
                       required
                     />
@@ -736,9 +1107,7 @@ export default function ForeignVehicles() {
                       id="exitDate"
                       type="date"
                       value={vehicleData.exitDate}
-                      onChange={(e) =>
-                        handleInputChange("exitDate", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("exitDate", e.target.value)}
                       className="text-right"
                       required
                     />
@@ -751,44 +1120,30 @@ export default function ForeignVehicles() {
                     </Label>
                     <Select
                       value={vehicleData.entryPoint}
-                      onValueChange={(value) =>
-                        handleInputChange("entryPoint", value)
-                      }
+                      onValueChange={(value) => handleInputChange("entryPoint", value)}
+                      open={entryPointOpen}
+                      onOpenChange={setEntryPointOpen}
                     >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر نقطة الدخول" />
+                        <SelectValue placeholder="اختر نقطة الدخول">
+                          {entryPointLabel ? entryPointLabel : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="damascus-airport">
-                          مطار دمشق الدولي
-                        </SelectItem>
-                        <SelectItem value="aleppo-airport">
-                          مطار حلب الدولي
-                        </SelectItem>
-                        <SelectItem value="nassib">معبر نصيب الحدودي</SelectItem>
-                        <SelectItem value="tanf">معبر التنف</SelectItem>
-                        <SelectItem value="qasmieh">معبر القاسمية</SelectItem>
-                        <SelectItem value="arida">معبر العريضة</SelectItem>
-                        <SelectItem value="tal-kalakh">معبر تل كلخ</SelectItem>
-                        <SelectItem value="other">أخرى</SelectItem>
+                        {entryPointOpen ? entryPointItems : null}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label
-                      htmlFor="customsDocument"
-                      className="flex items-center gap-2"
-                    >
+                    <Label htmlFor="customsDocument" className="flex items-center gap-2">
                       <FileText className="w-4 h-4" />
                       رقم الوثيقة الجمركية *
                     </Label>
                     <Input
                       id="customsDocument"
                       value={vehicleData.customsDocument}
-                      onChange={(e) =>
-                        handleInputChange("customsDocument", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("customsDocument", e.target.value)}
                       placeholder="رقم وثيقة العبور الجمركي"
                       className="text-right"
                       required
@@ -799,35 +1154,31 @@ export default function ForeignVehicles() {
 
                 <Alert className="bg-yellow-50 border-yellow-200">
                   <AlertDescription className="text-yellow-800 text-right">
-                    <strong>تنبيه:</strong> يجب التأكد من صحة تواريخ الدخول والخروج
-                    وتطابقها مع الوثائق الجمركية
+                    <strong>تنبيه:</strong> يجب التأكد من صحة تواريخ الدخول والخروج وتطابقها مع الوثائق الجمركية
                   </AlertDescription>
                 </Alert>
               </div>
             )}
 
-            {/* Step 4: Insurance Information */}
+            {/* Step 4 */}
             {currentStep === 4 && (
               <div className="space-y-6">
-                {/* ✅ Dropdowns الخاصة بالتأمين الحدودي */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label>نوع التأمين الحدودي *</Label>
                     <Select
                       value={vehicleData.borderVehicleType}
-                      onValueChange={(value) =>
-                        handleInputChange("borderVehicleType", value)
-                      }
+                      onValueChange={(value) => handleInputChange("borderVehicleType", value)}
+                      open={borderTypeOpen}
+                      onOpenChange={setBorderTypeOpen}
                     >
                       <SelectTrigger className="h-12 text-right">
-                        <SelectValue placeholder="اختر نوع التأمين الحدودي" />
+                        <SelectValue placeholder="اختر نوع التأمين الحدودي">
+                          {borderTypeLabel ? borderTypeLabel : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        {BORDER_VEHICLE_TYPES.map((t) => (
-                          <SelectItem key={t.value} value={t.value}>
-                            {t.label}
-                          </SelectItem>
-                        ))}
+                        {borderTypeOpen ? borderTypeItems : null}
                       </SelectContent>
                     </Select>
                   </div>
@@ -837,72 +1188,70 @@ export default function ForeignVehicles() {
                     <Select
                       value={vehicleData.insuranceMonths}
                       onValueChange={(v) => handleInputChange("insuranceMonths", v)}
+                      open={monthsOpen}
+                      onOpenChange={setMonthsOpen}
                     >
                       <SelectTrigger className="h-12 text-right">
-                        <SelectValue placeholder="اختر المدة" />
+                        <SelectValue placeholder="اختر المدة">
+                          {monthsLabel ? monthsLabel : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1">شهر</SelectItem>
-                        <SelectItem value="2">شهرين</SelectItem>
-                        <SelectItem value="3">3 أشهر</SelectItem>
-                        <SelectItem value="6">6 أشهر</SelectItem>
-                        <SelectItem value="12">سنة</SelectItem>
+                        {monthsOpen ? monthsItems : null}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
-                {/* (اختياري) أبقينا policyDuration لواجهة موجودة سابقاً */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="policyDuration" className="flex items-center gap-2">
+                    <Label className="flex items-center gap-2">
                       <Calendar className="w-4 h-4" />
                       مدة البوليصة (اختياري)
                     </Label>
                     <Select
                       value={vehicleData.policyDuration}
-                      onValueChange={(value) =>
-                        handleInputChange("policyDuration", value)
-                      }
+                      onValueChange={(value) => handleInputChange("policyDuration", value)}
+                      open={policyOpen}
+                      onOpenChange={setPolicyOpen}
                     >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر مدة التأمين" />
+                        <SelectValue placeholder="اختر مدة التأمين">
+                          {vehicleData.policyDuration ? policyLabel : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1month">شهر واحد</SelectItem>
-                        <SelectItem value="2months">شهرين</SelectItem>
-                        <SelectItem value="3months">3 أشهر</SelectItem>
-                        <SelectItem value="6months">6 أشهر</SelectItem>
-                        <SelectItem value="12months">سنة كاملة</SelectItem>
+                        {policyOpen ? policyItems : null}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="coverage" className="flex items-center gap-2">
+                    <Label className="flex items-center gap-2">
                       <CreditCard className="w-4 h-4" />
                       نوع التغطية *
                     </Label>
                     <Select
                       value={vehicleData.coverage}
                       onValueChange={(value) => handleInputChange("coverage", value)}
+                      open={coverageOpen}
+                      onOpenChange={setCoverageOpen}
                     >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر نوع التغطية" />
+                        <SelectValue placeholder="اختر نوع التغطية">
+                          {coverageLabel ? coverageLabel : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="third-party">تأمين ضد الغير</SelectItem>
-                        <SelectItem value="comprehensive">تأمين شامل</SelectItem>
-                        <SelectItem value="border-insurance">تأمين حدود</SelectItem>
+                        {coverageOpen ? coverageItems : null}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="notes">ملاحظات إضافية</Label>
+                  <Label>ملاحظات إضافية</Label>
                   <Textarea
-                    id="notes"
                     value={vehicleData.notes}
                     onChange={(e) => handleInputChange("notes", e.target.value)}
                     placeholder="أي معلومات إضافية أو ملاحظات خاصة بالمركبة الأجنبية..."
@@ -911,7 +1260,6 @@ export default function ForeignVehicles() {
                   />
                 </div>
 
-                {/* Summary Card */}
                 <Card className="bg-red-50 border-red-200">
                   <CardHeader>
                     <CardTitle className="text-red-800">ملخص البيانات</CardTitle>
@@ -924,25 +1272,23 @@ export default function ForeignVehicles() {
                       </div>
                       <div>
                         <span className="font-medium text-red-700">الجنسية: </span>
-                        <span>{vehicleData.nationality}</span>
+                        <span>{nationalityLabel || vehicleData.nationality || "-"}</span>
                       </div>
                       <div>
                         <span className="font-medium text-red-700">رقم اللوحة: </span>
                         <span>
-                          {vehicleData.plateNumber} ({vehicleData.plateCountry})
+                          {vehicleData.plateNumber} ({plateCountryLabel || vehicleData.plateCountry || "-"})
                         </span>
                       </div>
                       <div>
                         <span className="font-medium text-red-700">المركبة: </span>
                         <span>
-                          {vehicleData.brand} {vehicleData.model} {vehicleData.year}
+                          {(selectedMakeName || vehicleData.brand || "-")} {vehicleData.model} {vehicleData.year}
                         </span>
                       </div>
                       <div>
-                        <span className="font-medium text-red-700">فترة الإقامة: </span>
-                        <span>
-                          {vehicleData.entryDate} إلى {vehicleData.exitDate}
-                        </span>
+                        <span className="font-medium text-red-700">اللون: </span>
+                        <Badge variant="secondary">{vehicleData.color || "غير محدد"}</Badge>
                       </div>
                       <div>
                         <span className="font-medium text-red-700">مدة التأمين: </span>
@@ -952,7 +1298,11 @@ export default function ForeignVehicles() {
                       </div>
                       <div>
                         <span className="font-medium text-red-700">نوع الحدودي: </span>
-                        <Badge variant="outline">{vehicleData.borderVehicleType || "-"}</Badge>
+                        <Badge variant="outline">{borderTypeLabel || vehicleData.borderVehicleType || "-"}</Badge>
+                      </div>
+                      <div>
+                        <span className="font-medium text-red-700">التغطية: </span>
+                        <Badge variant="outline">{coverageLabel || vehicleData.coverage || "-"}</Badge>
                       </div>
                     </div>
                   </CardContent>

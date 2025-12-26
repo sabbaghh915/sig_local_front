@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,17 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Shield, Car, LogIn, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { authApi } from "../services/api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+
+type Center = { _id: string; name: string; ip?: string; code?: string; province?: string };
+
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -16,6 +27,8 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
+  const [centers, setCenters] = useState<Center[]>([]);
+  const [centerId, setCenterId] = useState<string>("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,9 +40,14 @@ export default function Login() {
         setError("يرجى إدخال اسم المستخدم وكلمة المرور");
         return;
       }
+      if (!centerId) {
+  setError("يرجى اختيار المركز");
+  return;
+}
+
 
       // Call the login API
-      const response = await authApi.login({ username, password });
+      const response = await authApi.login({ username, password, centerId });
 
       if (response.success && response.token && response.user) {
         // Store authentication data
@@ -38,6 +56,21 @@ export default function Login() {
         localStorage.setItem("isAuthenticated", "true");
         localStorage.setItem("username", response.user.username);
         localStorage.setItem("employeeName", response.user.fullName);
+
+        // ✅ المركز من السيرفر (populate) أو من الاختيار
+const centerName =
+  response.user?.center?.name ||
+  centers.find((c) => c._id === centerId)?.name ||
+  "";
+
+const centerIp =
+  response.user?.center?.ip ||
+  centers.find((c) => c._id === centerId)?.ip ||
+  "";
+
+localStorage.setItem("centerId", response.user?.center?._id || centerId);
+localStorage.setItem("centerName", centerName);
+localStorage.setItem("centerIp", centerIp || "");
         
         navigate("/");
       } else {
@@ -50,6 +83,19 @@ export default function Login() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+  (async () => {
+    try {
+      const res = await fetch("/api/centers/public");
+      const json = await res.json();
+      setCenters(Array.isArray(json?.data) ? json.data : []);
+    } catch {
+      setCenters([]);
+    }
+  })();
+  }, []);
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-white to-gray-50 flex items-center justify-center p-4" dir="rtl">
@@ -80,6 +126,22 @@ export default function Login() {
           
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-6">
+              <div className="space-y-2">
+  <Label className="text-primary-700 font-medium">المركز</Label>
+  <Select value={centerId} onValueChange={setCenterId}>
+    <SelectTrigger className="text-right h-12 border-primary-200">
+      <SelectValue placeholder="اختر المركز" />
+    </SelectTrigger>
+    <SelectContent>
+      {centers.map((c) => (
+        <SelectItem key={c._id} value={c._id}>
+          {c.name} {c.ip ? `— ${c.ip}` : ""}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+</div>
+
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription className="text-right">
@@ -214,3 +276,4 @@ export default function Login() {
     </div>
   );
 }
+

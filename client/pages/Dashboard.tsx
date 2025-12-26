@@ -1,131 +1,345 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { Car, User, CreditCard, FileText, Calendar, MapPin, Phone, IdCard, Home } from "lucide-react";
+
+import {
+  Car,
+  User,
+  CreditCard,
+  FileText,
+  Calendar,
+  MapPin,
+  Phone,
+  IdCard,
+  Home,
+} from "lucide-react";
+
 import { cn } from "../lib/utils";
+import { metaApi } from "../services/api";
 
 interface VehicleData {
-  // Owner Information
   ownerName: string;
   nationalId: string;
   phoneNumber: string;
   address: string;
-  
-  // Vehicle Information
+
   plateNumber: string;
   chassisNumber: string;
   engineNumber: string;
-  brand: string;
-  model: string;
+
+  brand: string; // نخزن _id للماركة
+  model: string; // نص الموديل
   year: string;
-  color: string;
+
+  color: string; // اسم اللون
   fuelType: string;
-  
-  // Insurance Information
+
   policyDuration: string;
   coverage: string;
   notes: string;
 }
 
+type DbColor = { _id: string; name: string; ccid?: number };
+
+type MakeObj = {
+  _id: string;
+  make: string;
+  type?: string;
+  legacyId?: number;
+};
+
+function normalizeMakes(input: any): MakeObj[] {
+  const arr = Array.isArray(input) ? input : [];
+  if (!arr.length) return [];
+
+  // string[]
+  if (typeof arr[0] === "string") {
+    return arr.map((s: string) => ({ _id: s, make: s }));
+  }
+
+  // object[]
+  return arr
+    .map((m: any) => {
+      const id = String(m?._id ?? m?.id ?? m?.make ?? m?.name ?? "");
+      const make = String(m?.make ?? m?.name ?? m?._id ?? "");
+      if (!id || !make) return null;
+      return { _id: id, make, type: m?.type, legacyId: m?.legacyId };
+    })
+    .filter(Boolean) as MakeObj[];
+}
+
+function normalizeModels(input: any): string[] {
+  const arr = Array.isArray(input) ? input : [];
+  if (!arr.length) return [];
+
+  // string[]
+  if (typeof arr[0] === "string") return arr.filter(Boolean);
+
+  // object[]
+  return arr
+    .map((x: any) => String(x?.name ?? x?.model ?? x?.type ?? x?._id ?? ""))
+    .filter((s: string) => !!s);
+}
+
+function normalizeColors(input: any): DbColor[] {
+  const arr = Array.isArray(input) ? input : [];
+  return arr
+    .map((c: any) => {
+      const _id = String(c?._id ?? c?.id ?? c?.name ?? "");
+      const name = String(c?.name ?? "");
+      if (!_id || !name) return null;
+      return { _id, name, ccid: c?.ccid };
+    })
+    .filter(Boolean) as DbColor[];
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
+
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  
+
+  const [loadingMeta, setLoadingMeta] = useState(true);
+  const [loadingModels, setLoadingModels] = useState(false);
+
+  const [makes, setMakes] = useState<MakeObj[]>([]);
+  const [models, setModels] = useState<string[]>([]);
+  const [colors, setColors] = useState<DbColor[]>([]);
+
+  // ✅ لتحسين الأداء: لا نرسم عناصر القوائم إلا عند الفتح
+  const [brandOpen, setBrandOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [yearOpen, setYearOpen] = useState(false);
+  const [colorOpen, setColorOpen] = useState(false);
+
   const [vehicleData, setVehicleData] = useState<VehicleData>({
     ownerName: "",
     nationalId: "",
     phoneNumber: "",
     address: "",
+
     plateNumber: "",
     chassisNumber: "",
     engineNumber: "",
+
     brand: "",
     model: "",
     year: "",
+
     color: "",
     fuelType: "",
+
     policyDuration: "",
     coverage: "",
-    notes: ""
+    notes: "",
   });
 
   const handleInputChange = (field: keyof VehicleData, value: string) => {
-    setVehicleData(prev => ({ ...prev, [field]: value }));
+    setVehicleData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleNextStep = () => {
-    if (currentStep < 3) {
-      setCurrentStep(currentStep + 1);
-    }
+  const employeeName = localStorage.getItem("employeeName") || "";
+  const centerName = localStorage.getItem("centerName") || "";
+
+
+  // ✅ تحميل الماركات + الألوان
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingMeta(true);
+
+        const [makesRes, colorsRes] = await Promise.all([
+          metaApi.getMakes().catch(() => []),
+          metaApi.getColors().catch(() => []),
+        ]);
+
+        setMakes(normalizeMakes(makesRes));
+        setColors(normalizeColors(colorsRes));
+      } catch (e) {
+        console.error(e);
+        setMakes([]);
+        setColors([]);
+      } finally {
+        setLoadingMeta(false);
+      }
+    })();
+  }, []);
+
+  // ✅ عند تغيير الماركة
+  const onMakeChange = (makeId: string) => {
+    handleInputChange("brand", makeId);
+    handleInputChange("model", "");
+    setModels([]);
   };
 
-  const handlePrevStep = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
+  // ✅ تحميل الموديلات بعد اختيار الماركة
+  useEffect(() => {
+    (async () => {
+      if (!vehicleData.brand) {
+        setModels([]);
+        return;
+      }
+
+      try {
+        setLoadingModels(true);
+
+        // بعض APIs تتوقع اسم الماركة وليس _id
+        const selected =
+          makes.find((m) => m._id === vehicleData.brand) ||
+          makes.find((m) => m.make === vehicleData.brand);
+
+        const makeKey = selected?.make || vehicleData.brand;
+
+        const res = await metaApi.getModels(makeKey).catch(() => []);
+        setModels(normalizeModels(res));
+      } catch (e) {
+        console.error(e);
+        setModels([]);
+      } finally {
+        setLoadingModels(false);
+      }
+    })();
+  }, [vehicleData.brand, makes]);
+
+  const years = useMemo(
+    () => Array.from({ length: 25 }, (_, i) => String(new Date().getFullYear() - i)),
+    []
+  );
+
+  const steps = useMemo(
+    () => [
+      { number: 1, title: "بيانات المالك", icon: User },
+      { number: 2, title: "بيانات المركبة", icon: Car },
+      { number: 3, title: "بيانات التأمين", icon: FileText },
+    ],
+    []
+  );
+
+  // ✅ اسم الماركة المختارة لعرضه داخل المستطيل
+  const selectedMakeName = useMemo(() => {
+    const selected =
+      makes.find((m) => m._id === vehicleData.brand) ||
+      makes.find((m) => m.make === vehicleData.brand);
+    return selected?.make || "";
+  }, [makes, vehicleData.brand]);
+
+  // ✅ عناصر القوائم (memo)
+  const makeItems = useMemo(
+    () =>
+      makes.map((m) => (
+        <SelectItem key={m._id} value={m._id}>
+          {m.make}
+        </SelectItem>
+      )),
+    [makes]
+  );
+
+  const modelItems = useMemo(
+    () =>
+      models.map((name) => (
+        <SelectItem key={name} value={name}>
+          {name}
+        </SelectItem>
+      )),
+    [models]
+  );
+
+  const yearItems = useMemo(
+    () =>
+      years.map((y) => (
+        <SelectItem key={y} value={y}>
+          {y}
+        </SelectItem>
+      )),
+    [years]
+  );
+
+  const colorItems = useMemo(
+    () =>
+      colors.map((c) => (
+        <SelectItem key={c._id} value={c.name}>
+          {c.name}
+        </SelectItem>
+      )),
+    [colors]
+  );
+
+  const handleNextStep = () => currentStep < 3 && setCurrentStep((s) => s + 1);
+  const handlePrevStep = () => currentStep > 1 && setCurrentStep((s) => s - 1);
+
+  const isStepValid = (step: number) => {
+    switch (step) {
+      case 1:
+        return (
+          !!vehicleData.ownerName &&
+          !!vehicleData.nationalId &&
+          !!vehicleData.phoneNumber &&
+          !!vehicleData.address
+        );
+      case 2:
+        return (
+          !!vehicleData.plateNumber &&
+          !!vehicleData.chassisNumber &&
+          !!vehicleData.brand &&
+          !!vehicleData.model &&
+          !!vehicleData.year
+        );
+      case 3:
+        return !!vehicleData.policyDuration && !!vehicleData.coverage;
+      default:
+        return false;
     }
   };
 
   const handleSubmit = async () => {
     setIsLoading(true);
     setError("");
-    
+
     try {
-      // Save vehicle to MongoDB via API
       const vehiclePayload = {
         ...vehicleData,
-        vehicleType: 'syrian' as const,
-        year: parseInt(vehicleData.year) || new Date().getFullYear(),
+        vehicleType: "syrian" as const,
+        year: parseInt(vehicleData.year, 10) || new Date().getFullYear(),
       };
 
-      const { vehicleApi } = await import('../services/api');
+      const { vehicleApi } = await import("../services/api");
       const response = await vehicleApi.create(vehiclePayload);
-      
-      if (response.success && response.data) {
-        // Store vehicle ID and data for payment step
-        localStorage.setItem("vehicleData", JSON.stringify({
-          ...vehicleData,
-          vehicleId: response.data._id,
-        }));
+
+      if (response?.success && response?.data) {
+        localStorage.setItem(
+          "vehicleData",
+          JSON.stringify({
+            ...vehicleData,
+            vehicleId: response.data._id,
+          })
+        );
         navigate("/payment");
       } else {
         setError("حدث خطأ في حفظ البيانات");
       }
     } catch (err: any) {
       console.error("Save vehicle error:", err);
-      setError(err.message || "حدث خطأ في حفظ البيانات");
+      setError(err?.message || "حدث خطأ في حفظ البيانات");
     } finally {
       setIsLoading(false);
     }
   };
-
-  const isStepValid = (step: number) => {
-    switch (step) {
-      case 1:
-        return vehicleData.ownerName && vehicleData.nationalId && vehicleData.phoneNumber && vehicleData.address;
-      case 2:
-        return vehicleData.plateNumber && vehicleData.chassisNumber && vehicleData.brand && vehicleData.model && vehicleData.year;
-      case 3:
-        return vehicleData.policyDuration && vehicleData.coverage;
-      default:
-        return false;
-    }
-  };
-
-  const steps = [
-    { number: 1, title: "بيانات المالك", icon: User },
-    { number: 2, title: "بيانات المركبة", icon: Car },
-    { number: 3, title: "بيانات التأمين", icon: FileText }
-  ];
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
@@ -140,22 +354,44 @@ export default function Dashboard() {
               <div>
                 <h1 className="text-xl font-bold text-white">منصة التأمين الإلزامي</h1>
                 <p className="text-sm text-white/90">إصدار بوليصة جديدة</p>
+                
               </div>
             </div>
+
+            <div className="text-right text-white/95">
+  <div className="text-sm">المركز: <b>{centerName || "—"}</b></div>
+  <div className="text-xs opacity-90">الموظف: {employeeName || "—"}</div>
+</div>
+
+
             <div className="flex items-center gap-3">
-              <Button variant="outline" onClick={() => navigate("/")} className="flex items-center gap-2 border-white/30 text-white hover:bg-white/10">
+              <Button
+                variant="outline"
+                onClick={() => navigate("/")}
+                className="flex items-center gap-2 border-white/30 text-white hover:bg-white/10"
+              >
                 <Home className="w-4 h-4" />
                 الرئيسية
               </Button>
-              <Button variant="outline" onClick={() => navigate("/syrian-records")} className="flex items-center gap-2 border-white/30 text-white hover:bg-white/10">
+
+              <Button
+                variant="outline"
+                onClick={() => navigate("/syrian-records")}
+                className="flex items-center gap-2 border-white/30 text-white hover:bg-white/10"
+              >
                 <FileText className="w-4 h-4" />
                 السجلات السورية
               </Button>
-              <Button variant="outline" onClick={() => {
-                localStorage.removeItem("isAuthenticated");
-                localStorage.removeItem("username");
-                navigate("/login");
-              }} className="border-white/30 text-white hover:bg-white/10">
+
+              <Button
+                variant="outline"
+                onClick={() => {
+                  localStorage.removeItem("isAuthenticated");
+                  localStorage.removeItem("username");
+                  navigate("/login");
+                }}
+                className="border-white/30 text-white hover:bg-white/10"
+              >
                 تسجيل الخروج
               </Button>
             </div>
@@ -170,26 +406,33 @@ export default function Dashboard() {
             {steps.map((step, index) => (
               <div key={step.number} className="flex items-center">
                 <div className="flex flex-col items-center">
-                  <div className={cn(
-                    "w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all",
-                    currentStep >= step.number
-                      ? "bg-primary border-primary text-white"
-                      : "bg-white border-gray-300 text-gray-400"
-                  )}>
+                  <div
+                    className={cn(
+                      "w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all",
+                      currentStep >= step.number
+                        ? "bg-primary border-primary text-white"
+                        : "bg-white border-gray-300 text-gray-400"
+                    )}
+                  >
                     <step.icon className="w-6 h-6" />
                   </div>
-                  <span className={cn(
-                    "text-sm font-medium mt-2 transition-colors",
-                    currentStep >= step.number ? "text-primary" : "text-gray-400"
-                  )}>
+                  <span
+                    className={cn(
+                      "text-sm font-medium mt-2 transition-colors",
+                      currentStep >= step.number ? "text-primary" : "text-gray-400"
+                    )}
+                  >
                     {step.title}
                   </span>
                 </div>
+
                 {index < steps.length - 1 && (
-                  <div className={cn(
-                    "flex-1 h-1 mx-4 transition-colors",
-                    currentStep > step.number ? "bg-primary" : "bg-gray-200"
-                  )} />
+                  <div
+                    className={cn(
+                      "flex-1 h-1 mx-4 transition-colors",
+                      currentStep > step.number ? "bg-primary" : "bg-gray-200"
+                    )}
+                  />
                 )}
               </div>
             ))}
@@ -202,7 +445,6 @@ export default function Dashboard() {
           </Alert>
         )}
 
-        {/* Form Content */}
         <Card className="shadow-lg">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-xl">
@@ -213,9 +455,9 @@ export default function Dashboard() {
               {steps[currentStep - 1].title}
             </CardTitle>
           </CardHeader>
-          
+
           <CardContent className="space-y-6">
-            {/* Step 1: Owner Information */}
+            {/* Step 1 */}
             {currentStep === 1 && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -285,7 +527,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Step 2: Vehicle Information */}
+            {/* Step 2 */}
             {currentStep === 2 && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -330,82 +572,122 @@ export default function Dashboard() {
                     />
                   </div>
 
+                  {/* ✅ Brand */}
                   <div className="space-y-2">
                     <Label htmlFor="brand">الماركة *</Label>
-                    <Select value={vehicleData.brand} onValueChange={(value) => handleInputChange("brand", value)}>
+                    <Select
+                      value={vehicleData.brand}
+                      onValueChange={onMakeChange}
+                      disabled={loadingMeta}
+                      open={brandOpen}
+                      onOpenChange={setBrandOpen}
+                    >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر ماركة السيارة" />
+                        <SelectValue
+                          placeholder={loadingMeta ? "جارٍ تحميل الماركات..." : "اختر ماركة السيارة"}
+                        >
+                          {/* ✅ هذا هو الإصلاح: عرض القيمة حتى لو القائمة مغلقة */}
+                          {selectedMakeName ? selectedMakeName : undefined}
+                        </SelectValue>
                       </SelectTrigger>
+
                       <SelectContent>
-                        <SelectItem value="toyota">تويوتا</SelectItem>
-                        <SelectItem value="hyundai">هيونداي</SelectItem>
-                        <SelectItem value="kia">كيا</SelectItem>
-                        <SelectItem value="nissan">نيسان</SelectItem>
-                        <SelectItem value="chevrolet">شيفروليه</SelectItem>
-                        <SelectItem value="peugeot">بيجو</SelectItem>
-                        <SelectItem value="renault">رينو</SelectItem>
-                        <SelectItem value="other">أخرى</SelectItem>
+                        {brandOpen ? makeItems : null}
                       </SelectContent>
                     </Select>
                   </div>
 
+                  {/* ✅ Model */}
                   <div className="space-y-2">
                     <Label htmlFor="model">الموديل *</Label>
-                    <Input
-                      id="model"
+                    <Select
                       value={vehicleData.model}
-                      onChange={(e) => handleInputChange("model", e.target.value)}
-                      placeholder="موديل السيارة"
-                      className="text-right"
-                      required
-                    />
+                      onValueChange={(v) => handleInputChange("model", v)}
+                      disabled={!vehicleData.brand || loadingModels || models.length === 0}
+                      open={modelOpen}
+                      onOpenChange={setModelOpen}
+                    >
+                      <SelectTrigger className="text-right">
+                        <SelectValue
+                          placeholder={
+                            !vehicleData.brand
+                              ? "اختر الماركة أولاً"
+                              : loadingModels
+                              ? "جارٍ تحميل الموديلات..."
+                              : "اختر الموديل"
+                          }
+                        >
+                          {vehicleData.model ? vehicleData.model : undefined}
+                        </SelectValue>
+                      </SelectTrigger>
+
+                      <SelectContent>
+                        {modelOpen ? modelItems : null}
+                      </SelectContent>
+                    </Select>
                   </div>
 
+                  {/* ✅ Year */}
                   <div className="space-y-2">
-                    <Label htmlFor="year">سنة الصنع *</Label>
-                    <Select value={vehicleData.year} onValueChange={(value) => handleInputChange("year", value)}>
+                    <Label>سنة الصنع *</Label>
+                    <Select
+                      value={vehicleData.year}
+                      onValueChange={(value) => handleInputChange("year", value)}
+                      open={yearOpen}
+                      onOpenChange={setYearOpen}
+                    >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر سنة الصنع" />
+                        <SelectValue placeholder="اختر سنة الصنع">
+                          {vehicleData.year ? vehicleData.year : undefined}
+                        </SelectValue>
                       </SelectTrigger>
+
                       <SelectContent>
-                        {Array.from({length: 25}, (_, i) => 2024 - i).map(year => (
-                          <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
-                        ))}
+                        {yearOpen ? yearItems : null}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* ✅ Color */}
+                  <div className="space-y-2">
+                    <Label>لون السيارة</Label>
+                    <Select
+                      value={vehicleData.color}
+                      onValueChange={(value) => handleInputChange("color", value)}
+                      open={colorOpen}
+                      onOpenChange={setColorOpen}
+                    >
+                      <SelectTrigger className="text-right">
+                        <SelectValue
+                          placeholder={loadingMeta ? "جارٍ تحميل الألوان..." : "اختر لون السيارة"}
+                        >
+                          {vehicleData.color ? vehicleData.color : undefined}
+                        </SelectValue>
+                      </SelectTrigger>
+
+                      <SelectContent>
+                        {colorOpen ? colorItems : null}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="color">لون السيارة</Label>
-                    <Select value={vehicleData.color} onValueChange={(value) => handleInputChange("color", value)}>
+                    <Label>نوع الوقود</Label>
+                    <Select
+                      value={vehicleData.fuelType}
+                      onValueChange={(value) => handleInputChange("fuelType", value)}
+                    >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر لون السيارة" />
+                        <SelectValue placeholder="اختر نوع الوقود">
+                          {vehicleData.fuelType ? vehicleData.fuelType : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="white">أبيض</SelectItem>
-                        <SelectItem value="black">أسود</SelectItem>
-                        <SelectItem value="silver">فضي</SelectItem>
-                        <SelectItem value="gray">رمادي</SelectItem>
-                        <SelectItem value="red">��حمر</SelectItem>
-                        <SelectItem value="blue">أزرق</SelectItem>
-                        <SelectItem value="green">أخضر</SelectItem>
-                        <SelectItem value="other">أخرى</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="fuelType">نوع الوقود</Label>
-                    <Select value={vehicleData.fuelType} onValueChange={(value) => handleInputChange("fuelType", value)}>
-                      <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر نوع الوقود" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="gasoline">بنزين</SelectItem>
-                        <SelectItem value="diesel">ديزل</SelectItem>
-                        <SelectItem value="hybrid">هجين</SelectItem>
-                        <SelectItem value="electric">كهربائي</SelectItem>
-                        <SelectItem value="gas">غاز</SelectItem>
+                        <SelectItem value="بنزين">بنزين</SelectItem>
+                        <SelectItem value="ديزل">ديزل</SelectItem>
+                        <SelectItem value="هجين">هجين</SelectItem>
+                        <SelectItem value="كهربائي">كهربائي</SelectItem>
+                        <SelectItem value="غاز">غاز</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -413,18 +695,23 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Step 3: Insurance Information */}
+            {/* Step 3 */}
             {currentStep === 3 && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="policyDuration" className="flex items-center gap-2">
+                    <Label className="flex items-center gap-2">
                       <Calendar className="w-4 h-4" />
                       مدة البوليصة *
                     </Label>
-                    <Select value={vehicleData.policyDuration} onValueChange={(value) => handleInputChange("policyDuration", value)}>
+                    <Select
+                      value={vehicleData.policyDuration}
+                      onValueChange={(value) => handleInputChange("policyDuration", value)}
+                    >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر مدة التأمين" />
+                        <SelectValue placeholder="اختر مدة التأمين">
+                          {vehicleData.policyDuration ? vehicleData.policyDuration : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="3months">3 أشهر</SelectItem>
@@ -435,13 +722,18 @@ export default function Dashboard() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="coverage" className="flex items-center gap-2">
+                    <Label className="flex items-center gap-2">
                       <CreditCard className="w-4 h-4" />
                       نوع التغطية *
                     </Label>
-                    <Select value={vehicleData.coverage} onValueChange={(value) => handleInputChange("coverage", value)}>
+                    <Select
+                      value={vehicleData.coverage}
+                      onValueChange={(value) => handleInputChange("coverage", value)}
+                    >
                       <SelectTrigger className="text-right">
-                        <SelectValue placeholder="اختر نوع التغطية" />
+                        <SelectValue placeholder="اختر نوع التغطية">
+                          {vehicleData.coverage ? vehicleData.coverage : undefined}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="third-party">تأمين ضد الغير</SelectItem>
@@ -452,9 +744,8 @@ export default function Dashboard() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="notes">ملاحظات إضافية</Label>
+                  <Label>ملاحظات إضافية</Label>
                   <Textarea
-                    id="notes"
                     value={vehicleData.notes}
                     onChange={(e) => handleInputChange("notes", e.target.value)}
                     placeholder="أي معلومات إضافية أو ملاحظات خاصة..."
@@ -463,7 +754,6 @@ export default function Dashboard() {
                   />
                 </div>
 
-                {/* Summary Card */}
                 <Card className="bg-primary-50 border-primary-200">
                   <CardHeader>
                     <CardTitle className="text-primary-800">ملخص البيانات</CardTitle>
@@ -475,16 +765,30 @@ export default function Dashboard() {
                         <span>{vehicleData.ownerName}</span>
                       </div>
                       <div>
-                        <span className="font-medium text-primary-700">رقم اللوح��: </span>
+                        <span className="font-medium text-primary-700">رقم اللوحة: </span>
                         <span>{vehicleData.plateNumber}</span>
                       </div>
                       <div>
                         <span className="font-medium text-primary-700">المركبة: </span>
-                        <span>{vehicleData.brand} {vehicleData.model} {vehicleData.year}</span>
+                        <span>
+                          {selectedMakeName || "غير محدد"} {vehicleData.model} {vehicleData.year}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-medium text-primary-700">اللون: </span>
+                        <Badge variant="secondary">{vehicleData.color || "غير محدد"}</Badge>
                       </div>
                       <div>
                         <span className="font-medium text-primary-700">مدة التأمين: </span>
-                        <Badge variant="secondary">{vehicleData.policyDuration === "3months" ? "3 أشهر" : vehicleData.policyDuration === "6months" ? "6 أشهر" : "سنة كاملة"}</Badge>
+                        <Badge variant="secondary">
+                          {vehicleData.policyDuration === "3months"
+                            ? "3 أشهر"
+                            : vehicleData.policyDuration === "6months"
+                            ? "6 أشهر"
+                            : vehicleData.policyDuration === "12months"
+                            ? "سنة كاملة"
+                            : "غير محدد"}
+                        </Badge>
                       </div>
                     </div>
                   </CardContent>
@@ -494,7 +798,6 @@ export default function Dashboard() {
 
             <Separator className="my-6" />
 
-            {/* Navigation Buttons */}
             <div className="flex justify-between items-center">
               <Button
                 variant="outline"

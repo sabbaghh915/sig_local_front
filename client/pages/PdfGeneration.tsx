@@ -53,6 +53,11 @@ interface PolicyData {
   endDate: string;
   issueDate: string;
 
+  issuedByEmployee?: string;
+issuedByCenter?: string;
+issuedByCenterIp?: string;
+
+
   notes?: string;
 }
 
@@ -184,6 +189,15 @@ export default function PdfGeneration() {
 
   const printRef = useRef<HTMLDivElement>(null);
 
+  const userLocal = (() => {
+  try { return JSON.parse(localStorage.getItem("user") || "null"); } catch { return null; }
+})();
+
+const employeeName = userLocal?.fullName || localStorage.getItem("employeeName") || "";
+const centerName = userLocal?.center?.name || localStorage.getItem("centerName") || "";
+const centerIp = userLocal?.center?.ip || localStorage.getItem("centerIp") || "";
+
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -313,6 +327,11 @@ export default function PdfGeneration() {
           startDate: startDate.toISOString().split("T")[0],
           endDate: endDate.toISOString().split("T")[0],
           issueDate: issueDateObj.toISOString().split("T")[0],
+
+          issuedByEmployee: employeeName,
+issuedByCenter: centerName,
+issuedByCenterIp: centerIp,
+
 
           notes: vehicle.notes,
         };
@@ -655,7 +674,14 @@ export default function PdfGeneration() {
                 <div className="flex justify-between items-center">
                   <div>
                     <p className="text-sm text-gray-600">صادر عن:</p>
-                    <p className="font-bold">مكتب التأمين المعتمد</p>
+                    <p className="font-bold">{policyData.issuedByCenter || "مكتب التأمين المعتمد"}</p>
+{policyData.issuedByCenterIp && (
+  <p className="text-xs text-gray-600">IP: {policyData.issuedByCenterIp}</p>
+)}
+{policyData.issuedByEmployee && (
+  <p className="text-xs text-gray-600">الموظف: {policyData.issuedByEmployee}</p>
+)}
+
                     <p className="text-sm text-gray-600">بموجب ترخيص هيئة الإشراف على التأمين</p>
                   </div>
                   <div className="text-center">
@@ -667,7 +693,8 @@ export default function PdfGeneration() {
                     <p className="text-sm text-gray-600">التاريخ:</p>
                     <p className="font-bold">{formatDate(policyData.issueDate)}</p>
                     <div className="mt-2 pt-2 border-t border-gray-300">
-                      <p className="text-xs text-gray-500">توقيع الموظف المسؤول</p>
+                      <p className="text-xs text-gray-500">توقيع الموظف: {policyData.issuedByEmployee || "—"}</p>
+
                     </div>
                   </div>
                 </div>

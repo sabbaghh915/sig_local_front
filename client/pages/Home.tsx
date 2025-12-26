@@ -25,6 +25,8 @@ export default function Home() {
   const navigate = useNavigate();
   
   const employeeName = localStorage.getItem("employeeName") || "الموظف";
+  const centerName = localStorage.getItem("centerName") || "";
+  
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
@@ -38,7 +40,8 @@ export default function Home() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-white">منصة التأمين الإلزامي</h1>
-                <p className="text-sm text-white/90">الصفحة الرئيسية - مرحباً {employeeName}</p>
+                <p className="text-sm text-white/90"> مرحباً {employeeName}</p>
+                 <p className="text-sm text-white/90">مركز:  {centerName}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">

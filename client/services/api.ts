@@ -1,4 +1,11 @@
-import { LoginRequest, RegisterRequest, AuthResponse, Vehicle, Payment, ApiResponse } from "@shared/api";
+import {
+  LoginRequest,
+  RegisterRequest,
+  AuthResponse,
+  Vehicle,
+  Payment,
+  ApiResponse,
+} from "@shared/api";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -9,10 +16,8 @@ const getAuthToken = () => localStorage.getItem("authToken");
 const normalizeId = (id: any): string => {
   if (!id) throw new Error("Missing id");
 
-  // already string
   if (typeof id === "string") return id;
 
-  // common patterns: {_id: "..."} or {id:"..."} or mongoose doc
   if (typeof id === "object") {
     const v =
       id._id?.toString?.() ??
@@ -25,7 +30,6 @@ const normalizeId = (id: any): string => {
     if (typeof v === "string") return v;
   }
 
-  // last fallback
   const s = String(id);
   if (s === "[object Object]") {
     throw new Error("Invalid id: received object instead of string (_id)");
@@ -49,7 +53,6 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
     headers,
   });
 
-  // try parse json (even for errors)
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
@@ -112,7 +115,6 @@ export const vehicleApi = {
     return fetchWithAuth(`/vehicles${query ? `?${query}` : ""}`);
   },
 
-  // ✅ id can be string OR object => normalize
   getById: async (id: any): Promise<ApiResponse<Vehicle>> => {
     const vid = normalizeId(id);
     return fetchWithAuth(`/vehicles/${vid}`);
@@ -155,5 +157,27 @@ export const paymentApi = {
   getById: async (id: any): Promise<ApiResponse<Payment>> => {
     const pid = normalizeId(id);
     return fetchWithAuth(`/payments/${pid}`);
+  },
+};
+
+
+// ✅ Meta API (makes / models / colors)
+export const metaApi = {
+  getMakes: async (): Promise<string[]> => {
+    const payload = await fetchWithAuth("/meta/makes");
+    // متوقع يرجع {success:true, data:[...]} أو array مباشر
+    return Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+  },
+
+  getModels: async (make: string): Promise<string[]> => {
+    const qs = new URLSearchParams();
+    qs.set("make", make);
+    const payload = await fetchWithAuth(`/meta/models?${qs.toString()}`);
+    return Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+  },
+
+  getColors: async (): Promise<Array<{ _id: string; name: string; ccid?: number }>> => {
+    const payload = await fetchWithAuth("/meta/colors");
+    return Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
   },
 };
