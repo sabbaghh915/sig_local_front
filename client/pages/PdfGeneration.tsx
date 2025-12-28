@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -17,6 +17,11 @@ import {
   Shield,
   User,
 } from "lucide-react";
+
+// ✅ PDF + QR
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+import QRCode from "qrcode";
 
 type QuoteBreakdown = {
   netPremium: number;
@@ -43,20 +48,19 @@ interface PolicyData {
   year: string;
   color?: string;
 
-  policyDuration: string; // للعرض فقط
+  policyDuration: string;
   coverage: string;
 
-  premium: number; // ✅ السعر الصحيح
-  breakdown?: QuoteBreakdown; // ✅ تفصيل التسعير (إن وجد)
+  premium: number;
+  breakdown?: QuoteBreakdown;
 
   startDate: string;
   endDate: string;
   issueDate: string;
 
   issuedByEmployee?: string;
-issuedByCenter?: string;
-issuedByCenterIp?: string;
-
+  issuedByCenter?: string;
+  issuedByCenterIp?: string;
 
   notes?: string;
 }
@@ -89,7 +93,7 @@ type VehicleFromDb = {
 
 type PaymentFromDb = {
   _id: string;
-  vehicleId: any; // قد يكون string أو object إذا تم populate
+  vehicleId: any;
   policyNumber: string;
   amount: number;
   paymentDate?: string;
@@ -164,7 +168,6 @@ function durationFromMonths(months?: number) {
 
 function parseMonthsFromPolicyDuration(d?: string) {
   const s = String(d || "").toLowerCase();
-  // ✅ مهم: افحص 12 قبل 1
   if (s.includes("12")) return 12;
   if (s.includes("6")) return 6;
   if (s.includes("3")) return 3;
@@ -187,16 +190,54 @@ export default function PdfGeneration() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
+  // ✅ QR DataURL
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
+
   const printRef = useRef<HTMLDivElement>(null);
 
   const userLocal = (() => {
-  try { return JSON.parse(localStorage.getItem("user") || "null"); } catch { return null; }
-})();
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null");
+    } catch {
+      return null;
+    }
+  })();
 
-const employeeName = userLocal?.fullName || localStorage.getItem("employeeName") || "";
-const centerName = userLocal?.center?.name || localStorage.getItem("centerName") || "";
-const centerIp = userLocal?.center?.ip || localStorage.getItem("centerIp") || "";
+  const employeeName = userLocal?.fullName || localStorage.getItem("employeeName") || "";
+  const centerName = userLocal?.center?.name || localStorage.getItem("centerName") || "";
+  const centerIp = userLocal?.center?.ip || localStorage.getItem("centerIp") || "";
 
+  // ✅ رابط/قيمة الـ QR (يفضل يكون صفحة تحقق عامة)
+  const qrValue = useMemo(() => {
+    if (!policyData?.policyNumber) return "";
+    const publicBase =
+      (import.meta as any)?.env?.VITE_PUBLIC_URL || window.location.origin;
+
+    // مثال: https://your-site.com/verify?policy=POL-...
+    return `${publicBase}/verify?policy=${encodeURIComponent(policyData.policyNumber)}`;
+  }, [policyData?.policyNumber]);
+
+  // ✅ توليد QR كصورة base64 (DataURL)
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      try {
+        if (!qrValue) return;
+        const url = await QRCode.toDataURL(qrValue, {
+          errorCorrectionLevel: "M",
+          margin: 1,
+          width: 256,
+        });
+        if (!cancelled) setQrDataUrl(url);
+      } catch (e) {
+        console.error("QR generation failed:", e);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [qrValue]);
 
   useEffect(() => {
     const load = async () => {
@@ -215,7 +256,6 @@ const centerIp = userLocal?.center?.ip || localStorage.getItem("centerIp") || ""
           return json?.data ?? json;
         };
 
-        // ✅ يدعم: /pdf?paymentId=... أو /pdf?payment=... أو /pdf?policy=...
         const paymentIdParam =
           searchParams.get("paymentId") ||
           searchParams.get("payment") ||
@@ -238,8 +278,9 @@ const centerIp = userLocal?.center?.ip || localStorage.getItem("centerIp") || ""
         if (candidatePaymentId) {
           payment = await apiFetch(`/api/payments/${candidatePaymentId}`);
         } else if (paymentIdParam) {
-          // إذا كان policyNumber أو receipt أو نص
-          const list = await apiFetch(`/api/payments?search=${encodeURIComponent(paymentIdParam)}`);
+          const list = await apiFetch(
+            `/api/payments?search=${encodeURIComponent(paymentIdParam)}`
+          );
           payment = Array.isArray(list) ? list[0] : list?.data?.[0] || null;
         }
 
@@ -251,27 +292,28 @@ const centerIp = userLocal?.center?.ip || localStorage.getItem("centerIp") || ""
           }
         })();
 
-        // ✅ vehicleId قد يرجع object (populate) → استخرج _id
         const vehicleIdParam = searchParams.get("vehicleId");
         const vehicleId =
           extractId(payment?.vehicleId) ||
           (typeof vehicleIdParam === "string" ? vehicleIdParam : null) ||
-          (typeof vehicleLocal?.vehicleId === "string" ? vehicleLocal.vehicleId : null);
+          (typeof vehicleLocal?.vehicleId === "string"
+            ? vehicleLocal.vehicleId
+            : null);
 
         if (!vehicleId || !isObjectIdLike(vehicleId)) {
-          throw new Error(`لم يتم العثور على vehicleId صالح. received: ${String(vehicleId)}`);
+          throw new Error(
+            `لم يتم العثور على vehicleId صالح. received: ${String(vehicleId)}`
+          );
         }
 
         const vehicle: VehicleFromDb = await apiFetch(`/api/vehicles/${vehicleId}`);
 
-        // ✅ السعر الحقيقي: payment.amount ثم fallback إلى vehicle.pricing.quote.total
         const premium =
           safeNum(payment?.amount) ||
           safeNum(paymentLocal?.amount) ||
           safeNum(vehicle?.pricing?.quote?.total) ||
           0;
 
-        // ✅ التفصيل من vehicle.pricing.quote إن وجد
         const breakdown: QuoteBreakdown | undefined = vehicle?.pricing?.quote
           ? {
               netPremium: safeNum(vehicle.pricing.quote.netPremium),
@@ -329,9 +371,8 @@ const centerIp = userLocal?.center?.ip || localStorage.getItem("centerIp") || ""
           issueDate: issueDateObj.toISOString().split("T")[0],
 
           issuedByEmployee: employeeName,
-issuedByCenter: centerName,
-issuedByCenterIp: centerIp,
-
+          issuedByCenter: centerName,
+          issuedByCenterIp: centerIp,
 
           notes: vehicle.notes,
         };
@@ -359,11 +400,69 @@ issuedByCenterIp: centerIp,
     window.location.reload();
   };
 
+  // ✅ تحميل PDF فعلي + فيه QR بمكان الختم
   const handleDownloadPdf = async () => {
+    if (!printRef.current || !policyData) return;
+
     setIsGenerating(true);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    alert("سيتم تطوير تحميل ملف PDF قريباً");
-    setIsGenerating(false);
+    try {
+      // تأكد أن الـ QR جاهز
+      if (!qrDataUrl && qrValue) {
+        const url = await QRCode.toDataURL(qrValue, {
+          errorCorrectionLevel: "M",
+          margin: 1,
+          width: 256,
+        });
+        setQrDataUrl(url);
+      }
+
+      // انتظر لحظة صغيرة لتحميل صورة الـ img داخل DOM
+      await new Promise((r) => setTimeout(r, 150));
+
+      const element = printRef.current;
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        scrollX: 0,
+        scrollY: -window.scrollY,
+        windowWidth: document.documentElement.clientWidth,
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      const margin = 10;
+      const usableWidth = pageWidth - margin * 2;
+      const usableHeight = pageHeight - margin * 2;
+
+      const imgWidth = usableWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = margin;
+
+      pdf.addImage(imgData, "PNG", margin, position, imgWidth, imgHeight);
+      heightLeft -= usableHeight;
+
+      while (heightLeft > 0) {
+        pdf.addPage();
+        position = margin - (imgHeight - heightLeft);
+        pdf.addImage(imgData, "PNG", margin, position, imgWidth, imgHeight);
+        heightLeft -= usableHeight;
+      }
+
+      pdf.save(`policy-${policyData.policyNumber}.pdf`);
+    } catch (e) {
+      console.error("PDF generation failed:", e);
+      alert("فشل إنشاء PDF. افتح الكونسول لمعرفة السبب.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   if (isLoading) {
@@ -383,7 +482,9 @@ issuedByCenterIp: centerIp,
         <Card className="max-w-md mx-auto">
           <CardContent className="text-center p-8">
             <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-gray-900 mb-2">لم يتم العثور على البوليصة</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">
+              لم يتم العثور على البوليصة
+            </h2>
             <p className="text-gray-600 mb-4">لا توجد بيانات للبوليصة المطلوبة</p>
             <Button onClick={() => navigate("/")}>العودة للصفحة الرئيسية</Button>
           </CardContent>
@@ -467,8 +568,12 @@ issuedByCenterIp: centerIp,
               <div className="flex items-center justify-center gap-4 mb-4">
                 <Shield className="w-12 h-12" />
                 <div>
-                  <CardTitle className="text-2xl font-bold">بوليصة التأمين الإلزامي للمركبات</CardTitle>
-                  <p className="text-lg opacity-90 print:text-gray-600">الجمهورية العربية السورية</p>
+                  <CardTitle className="text-2xl font-bold">
+                    بوليصة التأمين الإلزامي للمركبات
+                  </CardTitle>
+                  <p className="text-lg opacity-90 print:text-gray-600">
+                    الجمهورية العربية السورية
+                  </p>
                 </div>
               </div>
 
@@ -603,7 +708,6 @@ issuedByCenterIp: centerIp,
                     </div>
                   </div>
 
-                  {/* ✅ تفصيل التسعير إن وجد */}
                   {policyData.breakdown && (
                     <>
                       <Separator />
@@ -675,31 +779,49 @@ issuedByCenterIp: centerIp,
                   <div>
                     <p className="text-sm text-gray-600">صادر عن:</p>
                     <p className="font-bold">{policyData.issuedByCenter || "مكتب التأمين المعتمد"}</p>
-{policyData.issuedByCenterIp && (
-  <p className="text-xs text-gray-600">IP: {policyData.issuedByCenterIp}</p>
-)}
-{policyData.issuedByEmployee && (
-  <p className="text-xs text-gray-600">الموظف: {policyData.issuedByEmployee}</p>
-)}
 
-                    <p className="text-sm text-gray-600">بموجب ترخيص هيئة الإشراف على التأمين</p>
+                    {policyData.issuedByCenterIp && (
+                      <p className="text-xs text-gray-600">IP: {policyData.issuedByCenterIp}</p>
+                    )}
+                    {policyData.issuedByEmployee && (
+                      <p className="text-xs text-gray-600">الموظف: {policyData.issuedByEmployee}</p>
+                    )}
+
+                    <p className="text-sm text-gray-600">
+                      بموجب ترخيص اتحاد شركات التأمين السورية
+                    </p>
                   </div>
+
+                  {/* ✅ مكان ختم المكتب -> QR */}
                   <div className="text-center">
-                    <div className="w-24 h-24 border-2 border-gray-300 rounded-lg flex items-center justify-center">
-                      <p className="text-xs text-gray-500">ختم المكتب</p>
+                    <div className="w-24 h-24 border-2 border-gray-300 rounded-lg flex items-center justify-center bg-white overflow-hidden">
+                      {qrDataUrl ? (
+                        <img
+                          src={qrDataUrl}
+                          alt="QR"
+                          className="w-24 h-24 object-contain"
+                        />
+                      ) : (
+                        <p className="text-xs text-gray-500">جارٍ توليد QR...</p>
+                      )}
                     </div>
+                    <p className="mt-1 text-[10px] text-gray-500">QR للتحقق</p>
                   </div>
+
                   <div className="text-left">
                     <p className="text-sm text-gray-600">التاريخ:</p>
                     <p className="font-bold">{formatDate(policyData.issueDate)}</p>
                     <div className="mt-2 pt-2 border-t border-gray-300">
-                      <p className="text-xs text-gray-500">توقيع الموظف: {policyData.issuedByEmployee || "—"}</p>
-
+                      <p className="text-xs text-gray-500">
+                        توقيع الموظف: {policyData.issuedByEmployee || "—"}
+                      </p>
                     </div>
                   </div>
                 </div>
-              </div>
 
+                {/* اختياري: اعرض رابط التحقق نصياً تحت الـ QR */}
+                {/* <p className="mt-3 text-[10px] text-gray-400">{qrValue}</p> */}
+              </div>
             </CardContent>
           </Card>
         </div>
