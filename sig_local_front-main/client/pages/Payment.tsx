@@ -34,17 +34,17 @@ interface VehicleDataView {
 
 type PricingInput =
   | {
-      insuranceType: "internal";
-      vehicleCode: string;
-      category: string;
-      classification: string; // "0" | "1" | "2" | "3"
-      months: number;
-    }
+    insuranceType: "internal";
+    vehicleCode: string;
+    category: string;
+    classification: string; // "0" | "1" | "2" | "3"
+    months: number;
+  }
   | {
-      insuranceType: "border";
-      borderVehicleType: string;
-      months: number;
-    };
+    insuranceType: "border";
+    borderVehicleType: string;
+    months: number;
+  };
 
 type QuoteBreakdown = {
   netPremium: number;
@@ -265,76 +265,77 @@ export default function Payment() {
 
   // 3) الدفع وتسجيل payment
   const getStoredVehicle = () => {
-  const sy = localStorage.getItem("vehicleData");
-  if (sy) return { key: "vehicleData", data: JSON.parse(sy) };
+    const sy = localStorage.getItem("vehicleData");
+    if (sy) return { key: "vehicleData", data: JSON.parse(sy) };
 
-  const fr = localStorage.getItem("foreignVehicleData");
-  if (fr) return { key: "foreignVehicleData", data: JSON.parse(fr) };
+    const fr = localStorage.getItem("foreignVehicleData");
+    if (fr) return { key: "foreignVehicleData", data: JSON.parse(fr) };
 
-  return null;
-};
+    return null;
+  };
 
-const handlePayment = async () => {
-  if (!vehicleData || !paymentMethod) return;
+  const handlePayment = async () => {
+    if (!vehicleData || !paymentMethod) return;
 
-  // لازم يكون عندك quote محسوب
-  if (!quote || !pricingInput) {
-    alert("احسب السعر أولاً من بيانات التسعير");
-    return;
-  }
-
-  setIsProcessing(true);
-
-  try {
-    const stored = getStoredVehicle();
-    const vehicleId = stored?.data?.vehicleId || vehicleData.vehicleId;
-
-    if (!vehicleId || typeof vehicleId !== "string") {
-      alert("خطأ: vehicleId غير موجود أو ليس نصاً");
+    // لازم يكون عندك quote محسوب
+    if (!quote || !pricingInput) {
+      alert("احسب السعر أولاً من بيانات التسعير");
       return;
     }
 
-    // ✅ 1) حدّث المركبة وخزّن التسعير + التفصيل داخل DB
-    const { vehicleApi, paymentApi } = await import("../services/api");
+    setIsProcessing(true);
 
-    await vehicleApi.update(vehicleId, {
-      pricing: {
-        ...pricingInput,
-        quote, // QuoteBreakdown
-      },
-    });
+    try {
+      const stored = getStoredVehicle();
+      const vehicleId = stored?.data?.vehicleId || vehicleData.vehicleId;
 
-    // ✅ 2) أنشئ سجل الدفع (حقول أساسية فقط)
-    const policyNumber = `POL-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      if (!vehicleId || typeof vehicleId !== "string") {
+        alert("خطأ: vehicleId غير موجود أو ليس نصاً");
+        return;
+      }
 
-    const payRes = await paymentApi.create({
-      vehicleId,
-      policyNumber,
-      amount: quote.total,
-      paymentMethod: paymentMethod as any,
-      paidBy: vehicleData.ownerName,
-      payerPhone: vehicleData.phoneNumber,
-      paymentStatus: "completed",
-      receiptNumber: "", // backend يولده
-    });
+      // ✅ 1) حدّث المركبة وخزّن التسعير + التفصيل داخل DB
+      const { vehicleApi, paymentApi } = await import("../services/api");
 
-    if (payRes?.success && payRes.data?._id) {
-      setPaymentCompleted(true);
+      await vehicleApi.update(vehicleId, {
+        pricing: {
+          ...pricingInput,
+          quote, // QuoteBreakdown
+        },
+      });
 
-      // ✅ مرّر paymentId للـ PDF ليقرأ من DB
-      setTimeout(() => {
-        navigate(`/pdf?payment=${payRes.data._id}`);
-      }, 800);
-    } else {
-      alert("فشل إنشاء سجل الدفع");
+      // ✅ 2) أنشئ سجل الدفع (حقول أساسية فقط)
+      const policyNumber = `POL-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+      const payRes = await paymentApi.create({
+        vehicleId,
+        policyNumber,
+        amount: quote.total,
+        paymentMethod: paymentMethod as any,
+        paidBy: vehicleData.ownerName,
+        payerPhone: vehicleData.phoneNumber,
+        paymentStatus: "completed",
+        receiptNumber: "", // backend يولده
+      });
+
+      if (payRes?.success && payRes.data?._id) {
+        const paymentId = payRes.data._id;
+        setPaymentCompleted(true);
+
+        // ✅ مرّر paymentId للـ PDF ليقرأ من DB
+        setTimeout(() => {
+          navigate(`/pdf?payment=${paymentId}`);
+        }, 800);
+      } else {
+        alert("فشل إنشاء سجل الدفع");
+      }
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "حدث خطأ في الدفع");
+    } finally {
+      setIsProcessing(false);
     }
-  } catch (e: any) {
-    console.error(e);
-    alert(e?.message || "حدث خطأ في الدفع");
-  } finally {
-    setIsProcessing(false);
-  }
-};
+  };
 
 
 
@@ -369,21 +370,21 @@ const handlePayment = async () => {
     vehicleData.policyDuration === "3months"
       ? "3 أشهر"
       : vehicleData.policyDuration === "6months"
-      ? "6 أشهر"
-      : vehicleData.policyDuration === "12months"
-      ? "سنة كاملة"
-      : vehicleData.policyDuration
-      ? vehicleData.policyDuration
-      : `${pricingInput ? (pricingInput as any).months : 12} شهر`;
+        ? "6 أشهر"
+        : vehicleData.policyDuration === "12months"
+          ? "سنة كاملة"
+          : vehicleData.policyDuration
+            ? vehicleData.policyDuration
+            : `${pricingInput ? (pricingInput as any).months : 12} شهر`;
 
   const coverageLabel =
     vehicleData.coverage === "third-party"
       ? "تأمين ضد الغير"
       : vehicleData.coverage === "comprehensive"
-      ? "تأمين شامل"
-      : vehicleData.coverage === "border-insurance"
-      ? "تأمين حدود"
-      : vehicleData.coverage || "-";
+        ? "تأمين شامل"
+        : vehicleData.coverage === "border-insurance"
+          ? "تأمين حدود"
+          : vehicleData.coverage || "-";
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
@@ -784,8 +785,8 @@ const handlePayment = async () => {
                           pricingInput?.insuranceType === "border"
                             ? (pricingInput as any).months
                             : pricingInput?.insuranceType === "internal"
-                            ? (pricingInput as any).months
-                            : durationToMonths(vehicleData.policyDuration);
+                              ? (pricingInput as any).months
+                              : durationToMonths(vehicleData.policyDuration);
 
                         endDate.setMonth(endDate.getMonth() + Number(m || 12));
                         return endDate.toLocaleDateString("ar-SY");

@@ -240,13 +240,14 @@ export default function PaymentForeign() {
       } as any);
 
       if (payRes?.success && payRes.data?._id) {
+        const paymentId = payRes.data._id;
         setPaymentCompleted(true);
 
         // اختياري: حفظ آخر دفع محلياً
         localStorage.setItem("paymentData", JSON.stringify(payRes.data));
 
         setTimeout(() => {
-          navigate(`/pdf-foreign?payment=${payRes.data._id}`);
+          navigate(`/pdf-foreign?payment=${paymentId}`);
         }, 800);
       } else {
         alert("فشل إنشاء سجل الدفع");
